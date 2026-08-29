@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Toaster } from 'react-hot-toast';
-import { LayoutList, BarChart3, Radio, Layers, QrCode } from 'lucide-react';
+import { LayoutList, BarChart3, Radio, Layers, QrCode, AlertTriangle, X, Zap } from 'lucide-react';
 import { useSmtSocket } from './hooks/useSmtSocket';
 import { useSmtStore } from './store/useSmtStore';
 import { useInventoryApi } from './hooks/useInventoryApi';
@@ -27,18 +26,112 @@ function App() {
 
   const activeLineId = useSmtStore(state => state.activeLineId);
   const activeLine = useSmtStore(state => state.lines[activeLineId]);
+  const headerAlert = useSmtStore(state => state.headerAlert);
+  const clearHeaderAlert = useSmtStore(state => state.clearHeaderAlert);
   const erpData = activeLine?.erp_data;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 p-4 sm:p-6 lg:p-8 font-sans">
-      <Toaster position="top-right" toastOptions={{ className: 'text-sm font-sans' }} />
+    <div className="min-h-screen bg-gray-50 text-gray-900 p-4 sm:p-6 lg:p-8 font-sans relative">
       
+      {/* ── HIGH-PRIORITY FLOATING TOP-CENTER CRITICAL & THRESHOLD ALERT BANNER ─── */}
+      {headerAlert && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-xl w-[92%] sm:w-auto animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto">
+          <div
+            className={clsx(
+              "flex items-center justify-between gap-3 sm:gap-4 px-4 py-3 rounded-2xl bg-white shadow-2xl border-2 transition-all backdrop-blur-md",
+              headerAlert.type === 'exhausted'
+                ? "border-red-600 ring-4 ring-red-600/30 bg-red-50/95 shadow-red-600/20 animate-pulse"
+                : headerAlert.type === 'threshold' || headerAlert.type === 'critical'
+                ? "border-amber-500 ring-4 ring-amber-500/20 shadow-amber-500/15"
+                : headerAlert.type === 'warning'
+                ? "border-amber-400 ring-4 ring-amber-400/20 shadow-amber-500/15"
+                : "border-emerald-500 ring-4 ring-emerald-500/20 shadow-emerald-500/15"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              {/* Urgent Beacon Icon */}
+              <div
+                className={clsx(
+                  "p-2 rounded-xl shrink-0 flex items-center justify-center",
+                  headerAlert.type === 'exhausted'
+                    ? "bg-red-600 text-white border border-red-700 animate-bounce shadow-md"
+                    : headerAlert.type === 'threshold' || headerAlert.type === 'critical'
+                    ? "bg-amber-100 text-amber-700 border border-amber-300 ring-2 ring-amber-200"
+                    : headerAlert.type === 'warning'
+                    ? "bg-amber-100 text-amber-700 border border-amber-200"
+                    : "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                )}
+              >
+                {headerAlert.type === 'exhausted' ? (
+                  <AlertTriangle className="w-5 h-5 text-white stroke-[3]" />
+                ) : headerAlert.type === 'threshold' || headerAlert.type === 'critical' ? (
+                  <AlertTriangle className="w-5 h-5 text-amber-600 stroke-[2.5]" />
+                ) : headerAlert.type === 'warning' ? (
+                  <AlertTriangle className="w-5 h-5 text-amber-600 stroke-[2.5]" />
+                ) : (
+                  <Zap className="w-5 h-5 text-emerald-600 stroke-[2.5]" />
+                )}
+              </div>
+
+              {/* Urgent Message Content */}
+              <div className="text-left">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={clsx(
+                      "text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full text-white shadow-2xs",
+                      headerAlert.type === 'exhausted'
+                        ? "bg-red-700 animate-pulse"
+                        : headerAlert.type === 'threshold' || headerAlert.type === 'critical'
+                        ? "bg-amber-600"
+                        : headerAlert.type === 'warning'
+                        ? "bg-amber-600"
+                        : "bg-emerald-600"
+                    )}
+                  >
+                    {headerAlert.type === 'exhausted'
+                      ? '🚨 FEEDER EXHAUSTED (0 QTY)'
+                      : headerAlert.type === 'threshold' || headerAlert.type === 'critical'
+                      ? '⚠️ LOW STOCK THRESHOLD (< 30s)'
+                      : headerAlert.type === 'warning'
+                      ? 'SYSTEM WARNING'
+                      : 'REEL REPLENISHED'}
+                  </span>
+                  <span className="text-[11px] font-mono text-gray-500">Live IIoT</span>
+                </div>
+                <p className={clsx(
+                  "text-xs sm:text-sm font-extrabold mt-0.5 tracking-tight",
+                  headerAlert.type === 'exhausted' ? "text-red-950" : "text-gray-900"
+                )}>
+                  {headerAlert.message}
+                </p>
+              </div>
+            </div>
+
+            {/* Close / Dismiss 'X' wrong symbol button */}
+            <button
+              type="button"
+              onClick={clearHeaderAlert}
+              title="Dismiss Alert"
+              aria-label="Dismiss Alert"
+              className={clsx(
+                "p-1.5 rounded-xl transition-all cursor-pointer shrink-0 ml-2",
+                headerAlert.type === 'exhausted'
+                  ? "text-red-700 hover:text-red-950 hover:bg-red-200/80 active:scale-90"
+                  : "text-gray-400 hover:text-gray-900 hover:bg-gray-100 active:scale-90"
+              )}
+            >
+              <X className="w-5 h-5 stroke-[2.5]" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 pb-6">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">SMT Floor Dashboard</h1>
-            <span className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full">
+            <span className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full shrink-0">
               <Radio className="w-3 h-3 text-green-600 animate-pulse" /> Live IIoT
             </span>
           </div>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SmtComponent, SmtLine, ReplenishmentEvent, StatusFilterType, CategoryInventory, MasterConfig } from '../types';
+import type { SmtComponent, SmtLine, ReplenishmentEvent, StatusFilterType, CategoryInventory, MasterConfig, HeaderAlert } from '../types';
 
 interface SmtState {
   activeLineId: string;
@@ -17,6 +17,9 @@ interface SmtState {
   soundAlertEnabled: boolean;
   isReplenishmentModalOpen: boolean;
   isCsvInspectorOpen: boolean;
+
+  // ── HEADER WARNING / ALERT ───────────────────────────────────
+  headerAlert: HeaderAlert | null;
 
   // ── REEL INVENTORY (JSON-driven) ──────────────────────────────
   /** Full reel inventory keyed by component type (e.g. "RESISTOR") */
@@ -37,6 +40,8 @@ interface SmtState {
   toggleSoundAlert: () => void;
   setIsReplenishmentModalOpen: (open: boolean) => void;
   setIsCsvInspectorOpen: (open: boolean) => void;
+  setHeaderAlert: (alert: HeaderAlert | null) => void;
+  clearHeaderAlert: () => void;
 
   updateInventoryBatch: (newComponents: SmtComponent[]) => void;
   updateLineStatus: (lineId: string, status: SmtLine['connection_status']) => void;
@@ -77,6 +82,9 @@ export const useSmtStore = create<SmtState>((set) => ({
   isReplenishmentModalOpen: false,
   isCsvInspectorOpen: false,
 
+  // Header Warning / Alert initial state
+  headerAlert: null,
+
   // Reel inventory initial state
   reelInventory: {},
   masterConfig: null,
@@ -92,6 +100,8 @@ export const useSmtStore = create<SmtState>((set) => ({
   toggleSoundAlert: () => set((state) => ({ soundAlertEnabled: !state.soundAlertEnabled })),
   setIsReplenishmentModalOpen: (open) => set({ isReplenishmentModalOpen: open }),
   setIsCsvInspectorOpen: (open) => set({ isCsvInspectorOpen: open }),
+  setHeaderAlert: (alert) => set({ headerAlert: alert }),
+  clearHeaderAlert: () => set({ headerAlert: null }),
 
   updateLinesData: (incomingLines) => set((state) => {
     const updatedLines = { ...state.lines };

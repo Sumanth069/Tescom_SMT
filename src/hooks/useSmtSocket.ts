@@ -1,38 +1,140 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useSmtStore } from '../store/useSmtStore';
-import toast from 'react-hot-toast';
 import type { ReplenishmentEvent, SmtComponent, CategoryInventory } from '../types';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 // Inventory server (port 3002) — handles QR scan pushes
 const INVENTORY_SOCKET_URL = import.meta.env.VITE_INVENTORY_API_URL || 'http://localhost:3002';
 
-function playCriticalChime() {
+// ─── INDUSTRIAL MULTI-TONE AUDIO ENGINE ───────────────────────────────────────
+let globalAudioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.35);
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.35);
+    if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtxClass) {
+        globalAudioCtx = new AudioCtxClass();
+      }
+    }
+    if (globalAudioCtx && globalAudioCtx.state === 'suspended') {
+      globalAudioCtx.resume();
+    }
+    return globalAudioCtx;
   } catch {
-    // Gracefully handle browser autoplay blocks
+    return null;
   }
 }
 
+/**
+ * Sound 1: THRESHOLD WARNING ALARM (Approaching Depletion / Low Stock < 30s)
+ * Standard comfortable volume dual-tone chime (640 Hz -> 580 Hz, Gain: ~0.20)
+ */
+function playThresholdWarningSound() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+
+    // Tone 1: 640 Hz (E5) smooth sine wave
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(640, now);
+    osc1.frequency.exponentialRampToValueAtTime(540, now + 0.16);
+    gain1.gain.setValueAtTime(0.20, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.16);
+
+    // Tone 2: 580 Hz (D5) smooth sine wave after 0.18s
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(580, now + 0.18);
+    osc2.frequency.exponentialRampToValueAtTime(480, now + 0.36);
+    gain2.gain.setValueAtTime(0.22, now + 0.18);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.18);
+    osc2.stop(now + 0.36);
+  } catch {
+    // Autoplay handling
+  }
+}
+
+/**
+ * Sound 2: VERY VERY LOUD FULLY EXHAUSTED EMERGENCY SIREN (0 Quantity / Line Stop Hazard)
+ * High-intensity maximum-gain dual sawtooth & square wave industrial klaxon (Gain: ~0.85 - 0.90).
+ */
+function playExhaustedAlarmSound() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+
+    // Master High-Gain Output Stage
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.88, now);
+    masterGain.connect(ctx.destination);
+
+    // High Emergency Pulse 1: 1150 Hz -> 850 Hz piercing sawtooth siren
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(1150, now);
+    osc1.frequency.linearRampToValueAtTime(850, now + 0.18);
+    gain1.gain.setValueAtTime(0.80, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc1.connect(gain1);
+    gain1.connect(masterGain);
+    osc1.start(now);
+    osc1.stop(now + 0.18);
+
+    // High Emergency Pulse 2: 850 Hz -> 1180 Hz square wave for heavy factory presence
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(850, now + 0.18);
+    osc2.frequency.linearRampToValueAtTime(1180, now + 0.38);
+    gain2.gain.setValueAtTime(0.85, now + 0.18);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+    osc2.connect(gain2);
+    gain2.connect(masterGain);
+    osc2.start(now + 0.18);
+    osc2.stop(now + 0.38);
+
+    // High Emergency Pulse 3: 1250 Hz -> 780 Hz piercing peak siren
+    const osc3 = ctx.createOscillator();
+    const gain3 = ctx.createGain();
+    osc3.type = 'sawtooth';
+    osc3.frequency.setValueAtTime(1250, now + 0.38);
+    osc3.frequency.linearRampToValueAtTime(780, now + 0.58);
+    gain3.gain.setValueAtTime(0.90, now + 0.38);
+    gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.58);
+    osc3.connect(gain3);
+    gain3.connect(masterGain);
+    osc3.start(now + 0.38);
+    osc3.stop(now + 0.58);
+  } catch {
+    // Autoplay handling
+  }
+}
+
+// ─── SMT SOCKET HOOK ─────────────────────────────────────────────────────────
 export const useSmtSocket = () => {
   const socketRef = useRef<Socket | null>(null);
   const inventorySocketRef = useRef<Socket | null>(null);
-  const previousCriticalSet = useRef<Set<string>>(new Set());
+  const previousStateRef = useRef<{ hadExhausted: boolean; hadThreshold: boolean }>({
+    hadExhausted: false,
+    hadThreshold: false
+  });
 
   const updateInventoryBatch = useSmtStore((state) => state.updateInventoryBatch);
   const updateLineStatus = useSmtStore((state) => state.updateLineStatus);
@@ -40,59 +142,111 @@ export const useSmtSocket = () => {
   const addReplenishmentEvent = useSmtStore((state) => state.addReplenishmentEvent);
   const setReplenishmentHistory = useSmtStore((state) => state.setReplenishmentHistory);
   const soundAlertEnabled = useSmtStore((state) => state.soundAlertEnabled);
+  const headerAlert = useSmtStore((state) => state.headerAlert);
+  const setHeaderAlert = useSmtStore((state) => state.setHeaderAlert);
   const setReelInventory = useSmtStore((state) => state.setReelInventory);
   const updateReelCategory = useSmtStore((state) => state.updateReelCategory);
 
+  // ── DEDICATED CONTINUOUS AUDIO LOOPS FOR THRESHOLD VS EXHAUSTED ─────────────
+  useEffect(() => {
+    if (!soundAlertEnabled || !headerAlert) return;
+
+    if (headerAlert.type === 'exhausted') {
+      // 1. FULLY EXHAUSTED: VERY LOUD rapid emergency siren every 850ms
+      playExhaustedAlarmSound();
+      const interval = setInterval(() => {
+        playExhaustedAlarmSound();
+      }, 850);
+
+      return () => clearInterval(interval);
+    } else if (headerAlert.type === 'threshold' || headerAlert.type === 'critical') {
+      // 2. BELOW THRESHOLD: Standard volume warning chime every 2.6 seconds
+      playThresholdWarningSound();
+      const interval = setInterval(() => {
+        playThresholdWarningSound();
+      }, 2600);
+
+      return () => clearInterval(interval);
+    }
+  }, [headerAlert?.type, headerAlert?.message, soundAlertEnabled]);
+
+  // ── SMT IIOT INGESTION WEBSOCKET (PORT 3001) ──────────────────────────────────
   useEffect(() => {
     socketRef.current = io(SOCKET_URL);
 
     socketRef.current.on('connect', () => {
-      toast.success('Connected to Ingestion Service');
       socketRef.current?.emit('request_replenishment_history');
     });
 
     socketRef.current.on('disconnect', () => {
-      toast.error('Lost connection to backend');
       ['line_1', 'line_2', 'line_3', 'line_4'].forEach(id => updateLineStatus(id, 'offline'));
+      setHeaderAlert({
+        type: 'warning',
+        message: 'Lost connection to backend service',
+        timestamp: Date.now()
+      });
     });
 
     // Listen for Component Batch Updates
     socketRef.current.on('inventory_batch_update', (data: SmtComponent[]) => {
       updateInventoryBatch(data);
 
-      // Check for new critical alerts
-      const currentCritical = new Set<string>();
-      let newlyCriticalCount = 0;
-      let lastCriticalFeeder = '';
+      let exhaustedCount = 0;
+      let lastExhaustedFeeder = '';
+      let thresholdCount = 0;
+      let lastThresholdFeeder = '';
 
       data.forEach(comp => {
-        if (comp.status === 'critical') {
-          const key = `${comp.line_id}-${comp.feeder_position}`;
-          currentCritical.add(key);
-          if (!previousCriticalSet.current.has(key)) {
-            newlyCriticalCount++;
-            lastCriticalFeeder = `${comp.feeder_position} (${comp.part_number})`;
-          }
+        const timeLeft = comp.time_left_seconds;
+        const isDepleted = comp.current_quantity <= 0 || (typeof timeLeft === 'number' && timeLeft <= 0) || comp.current_quantity <= 25;
+        const isThreshold = comp.status === 'critical' || (typeof timeLeft === 'number' && timeLeft <= 30);
+
+        if (isDepleted) {
+          exhaustedCount++;
+          lastExhaustedFeeder = `${comp.feeder_position} (${comp.part_number})`;
+        } else if (isThreshold) {
+          thresholdCount++;
+          lastThresholdFeeder = `${comp.feeder_position} (${comp.part_number})`;
         }
       });
 
-      if (newlyCriticalCount > 0) {
-        const msg = newlyCriticalCount === 1 
-          ? `CRITICAL ALERT: ${lastCriticalFeeder} < 30s remaining!`
-          : `CRITICAL ALERT: ${newlyCriticalCount} Feeders < 30s remaining!`;
-        
-        toast.error(msg, {
-          duration: 4000,
-          icon: '🚨',
-          id: 'critical-summary-toast'
-        });
+      // Priority 1: Fully Exhausted Feeder (VERY LOUD Continuous Alarm)
+      if (exhaustedCount > 0) {
+        const msg = exhaustedCount === 1
+          ? `FEEDER EXHAUSTED: ${lastExhaustedFeeder} (0 Parts Left) — MACHINE STOP RISK!`
+          : `CRITICAL ALERT: ${exhaustedCount} Feeders FULLY EXHAUSTED (0 Parts Left)!`;
 
-        if (soundAlertEnabled) {
-          playCriticalChime();
-        }
+        setHeaderAlert({
+          type: 'exhausted',
+          message: msg,
+          count: exhaustedCount,
+          feeder: lastExhaustedFeeder,
+          timestamp: Date.now()
+        });
+      }
+      // Priority 2: Reaching Low Threshold (< 30s remaining / Low Stock)
+      else if (thresholdCount > 0) {
+        const msg = thresholdCount === 1
+          ? `LOW STOCK THRESHOLD: ${lastThresholdFeeder} < 30s remaining — Prepare Refill!`
+          : `THRESHOLD WARNING: ${thresholdCount} Feeders below threshold (< 30s remaining)!`;
+
+        setHeaderAlert({
+          type: 'threshold',
+          message: msg,
+          count: thresholdCount,
+          feeder: lastThresholdFeeder,
+          timestamp: Date.now()
+        });
+      }
+      // All replenished / safe
+      else if (previousStateRef.current.hadExhausted || previousStateRef.current.hadThreshold) {
+        setHeaderAlert(null);
       }
 
-      previousCriticalSet.current = currentCritical;
+      previousStateRef.current = {
+        hadExhausted: exhaustedCount > 0,
+        hadThreshold: thresholdCount > 0
+      };
     });
 
     // Listen for ERP / Line Status Updates
@@ -100,13 +254,15 @@ export const useSmtSocket = () => {
       updateLinesData(linesArray);
     });
 
-    // Listen for Reel Replenishment Events
+    // Listen for Reel Replenishment Events (Silent without chime, visual banner only)
     socketRef.current.on('replenishment_event', (event: ReplenishmentEvent) => {
       addReplenishmentEvent(event);
-      toast.success(`REEL REPLENISHED: ${event.feeder_position} (${event.part_number}) +${event.replenished_amount.toLocaleString()} parts!`, {
-        icon: '⚡',
-        duration: 3500,
-        id: `replenish-toast-${event.line_id}`
+      const msg = `REEL REPLENISHED [${event.line_id.toUpperCase()}]: ${event.feeder_position} (${event.part_number}) +${event.replenished_amount.toLocaleString()} parts`;
+
+      setHeaderAlert({
+        type: 'info',
+        message: msg,
+        timestamp: Date.now()
       });
     });
 
@@ -118,9 +274,9 @@ export const useSmtSocket = () => {
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
     };
-  }, [updateInventoryBatch, updateLineStatus, updateLinesData, addReplenishmentEvent, setReplenishmentHistory, soundAlertEnabled]);
+  }, [updateInventoryBatch, updateLineStatus, updateLinesData, addReplenishmentEvent, setReplenishmentHistory, setHeaderAlert, soundAlertEnabled]);
 
-  // ── Inventory server socket (port 3002) ──────────────────────────
+  // ── INVENTORY SERVER WEBSOCKET (PORT 3002) ──────────────────────────────────
   useEffect(() => {
     inventorySocketRef.current = io(INVENTORY_SOCKET_URL);
 
