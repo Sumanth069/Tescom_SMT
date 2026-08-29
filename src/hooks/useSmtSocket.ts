@@ -1,11 +1,19 @@
+// Real-Time WebSocket Connection & Audio Alarms Hook
+// -------------------------------------------------------------
+// This hook handles:
+// 1. Connecting to the backend Ingestion Server (Port 3001).
+// 2. Receiving live feeder updates, customer order status, and reload events.
+// 3. Synthesizing two distinct, continuous acoustic alarms using the Web Audio API:
+//    - Low Stock Warning: Gentle pleasant two-tone chime (640 Hz -> 580 Hz, gain ~0.20, repeats every 2.6s).
+//    - Completely Empty: Very loud, urgent emergency siren (1150 Hz <-> 850 Hz, high gain ~0.88-0.90, repeats rapidly every 850ms).
+//    - Replenishment: Completely silent, immediately stops any running alarms.
+
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useSmtStore } from '../store/useSmtStore';
 import type { ReplenishmentEvent, SmtComponent, CategoryInventory } from '../types';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
-// Inventory server (port 3002) — handles QR scan pushes
-const INVENTORY_SOCKET_URL = import.meta.env.VITE_INVENTORY_API_URL || 'http://localhost:3002';
+const SOCKET_URL = 'http://localhost:3001';
 
 // ─── INDUSTRIAL MULTI-TONE AUDIO ENGINE ───────────────────────────────────────
 let globalAudioCtx: AudioContext | null = null;
@@ -172,7 +180,12 @@ export const useSmtSocket = () => {
 
   // ── SMT IIOT INGESTION WEBSOCKET (PORT 3001) ──────────────────────────────────
   useEffect(() => {
-    socketRef.current = io(SOCKET_URL);
+    // Connect to the WebSocket server on port 3001
+    const socket = io(SOCKET_URL, {
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+    socketRef.current = socket;
 
     socketRef.current.on('connect', () => {
       socketRef.current?.emit('request_replenishment_history');
@@ -280,20 +293,62 @@ export const useSmtSocket = () => {
   useEffect(() => {
     inventorySocketRef.current = io(INVENTORY_SOCKET_URL);
 
-    // Full inventory snapshot on connect
-    inventorySocketRef.current.on('reel_inventory_full', (data: Record<string, CategoryInventory>) => {
-      setReelInventory(data);
+      // Check if any feeder is completely exhausted (0 pcs or <= 10 pcs)
+      const exhaustedFeeder = activeLineFeeders.find(c => c.current_quantity <= 10 || c.time_left_seconds === 0);
+
+      // Check if any feeder has dropped below the warning threshold (< 90 seconds remaining)
+      const thresholdFeeder = activeLineFeeders.find(c => c.status === 'warning' || c.status === 'critical');
+
+      if (exhaustedFeeder) {
+        setActiveHeaderAlert({
+          type: 'exhausted',
+          feeder_position: exhaustedFeeder.feeder_position,
+          part_number: exhaustedFeeder.part_number,
+          line_id: exhaustedFeeder.line_id,
+          current_quantity: exhaustedFeeder.current_quantity,
+          timestamp: Date.now()
+        });
+        startExhaustedEmergencyAlarm();
+      } else if (thresholdFeeder) {
+        setActiveHeaderAlert({
+          type: 'threshold',
+          feeder_position: thresholdFeeder.feeder_position,
+          part_number: thresholdFeeder.part_number,
+          line_id: thresholdFeeder.line_id,
+          time_left_seconds: thresholdFeeder.time_left_seconds,
+          current_quantity: thresholdFeeder.current_quantity,
+          timestamp: Date.now()
+        });
+        startThresholdWarningAlarm();
+      }
     });
 
-    // Single category update after a QR scan
-    inventorySocketRef.current.on('reel_inventory_update', (categoryData: CategoryInventory) => {
-      updateReelCategory(categoryData);
+    // When an operator reloads a reel, stop all alarms and show the success banner
+    socket.on('replenishment_event', (event: ReplenishmentEvent) => {
+      addReplenishmentEvent(event);
+
+      if (event.line_id === activeLineId) {
+        stopAllAlarms();
+        setActiveHeaderAlert({
+          type: 'replenished',
+          feeder_position: event.feeder_position,
+          part_number: event.part_number,
+          line_id: event.line_id,
+          replenished_amount: event.replenished_amount,
+          timestamp: Date.now()
+        });
+      }
     });
 
+    // Clean up connections and timers when component unmounts
     return () => {
-      if (inventorySocketRef.current) inventorySocketRef.current.disconnect();
+      stopAllAlarms();
+      socket.disconnect();
     };
-  }, [setReelInventory, updateReelCategory]);
+  }, [activeLineId]);
 
-  return null;
-};
+  return {
+    socket: socketRef.current,
+    stopAllAlarms
+  };
+}

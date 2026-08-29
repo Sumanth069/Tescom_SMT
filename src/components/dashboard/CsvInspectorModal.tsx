@@ -1,3 +1,10 @@
+// Industrial Machine CSV Diagnostic Inspector Modal
+// -------------------------------------------------------------
+// This modal lets factory engineers test real CSV log files from SMT machines:
+// 1. File Upload: Drag and drop any real machine CSV (Yamaha YSM20R, Fuji, Panasonic, JUKI).
+// 2. Metadata Inspection: Extracts machine serial numbers, program names, and header rows.
+// 3. Schema Normalization: Shows how the backend translates raw column names into our database format.
+
 import { useState } from 'react';
 import { useSmtStore } from '../../store/useSmtStore';
 import { X, FileSpreadsheet, CheckCircle2, Upload, AlertCircle, Info } from 'lucide-react';
@@ -14,6 +21,8 @@ interface ParsedRowPreview {
   };
 }
 
+// Main CSV Diagnostic Inspector Component:
+// Allows testing and previewing real-world machine CSV files in the browser before deployment.
 export function CsvInspectorModal() {
   const isOpen = useSmtStore((state) => state.isCsvInspectorOpen);
   const setIsOpen = useSmtStore((state) => state.setIsCsvInspectorOpen);
@@ -26,6 +35,7 @@ export function CsvInspectorModal() {
 
   if (!isOpen) return null;
 
+  // Reads and parses the uploaded CSV file in the browser
   const handleFileUpload = (file: File) => {
     setFileName(file.name);
     setErrorMsg(null);
@@ -43,15 +53,15 @@ export function CsvInspectorModal() {
           return;
         }
 
-        // Find Header Row (supports Yamaha YSM20R metadata lines)
+        // Look for the header row and extract machine metadata lines
         const metadata: Record<string, string> = {};
         let headerIndex = -1;
 
         for (let i = 0; i < lines.length; i++) {
           const parts = lines[i].split(',').map(p => p.trim());
           const firstCol = (parts[0] || '').toLowerCase();
-          
-          const isHeaderLine = 
+
+          const isHeaderLine =
             firstCol === 'mount table' ||
             firstCol === 'line_id' ||
             firstCol === 'line' ||
@@ -76,7 +86,7 @@ export function CsvInspectorModal() {
         setRawHeaders(headers);
         setDetectedMetadata(metadata);
 
-        // Parse preview rows
+        // Parse preview rows (first 15 rows)
         const parsedRows: ParsedRowPreview[] = [];
         for (let i = headerIndex + 1; i < Math.min(lines.length, headerIndex + 15); i++) {
           const values = lines[i].split(',').map(v => v.trim());
@@ -87,7 +97,7 @@ export function CsvInspectorModal() {
             if (h) rawRow[h] = values[idx] || '';
           });
 
-          // Normalize
+          // Normalize row keys to lowercase
           const cleanRow: Record<string, string> = {};
           for (const [key, val] of Object.entries(rawRow)) {
             const cleanKey = key.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
@@ -126,8 +136,8 @@ export function CsvInspectorModal() {
   return (
     <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
-        
-        {/* Header */}
+
+        {/* Modal Header */}
         <div className="px-6 py-4 bg-purple-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-600 rounded-xl">
@@ -140,7 +150,7 @@ export function CsvInspectorModal() {
           </div>
           <button
             onClick={() => setIsOpen(false)}
-            className="p-2 text-purple-200 hover:text-white rounded-lg hover:bg-purple-800 transition-colors"
+            className="p-2 text-purple-200 hover:text-white rounded-lg hover:bg-purple-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -148,8 +158,8 @@ export function CsvInspectorModal() {
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          
-          {/* Upload Area */}
+
+          {/* File Upload Drop Area */}
           <div className="border-2 border-dashed border-purple-200 hover:border-purple-400 bg-purple-50/50 rounded-2xl p-6 text-center transition-colors">
             <input
               type="file"
@@ -177,18 +187,18 @@ export function CsvInspectorModal() {
 
           {errorMsg && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center gap-2 font-bold">
-              <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
               {errorMsg}
             </div>
           )}
 
           {fileName && rowsPreview.length > 0 && (
             <div className="space-y-6">
-              
-              {/* Success Banner */}
+
+              {/* Compatibility Notice */}
               <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-green-800 text-xs flex items-center justify-between font-medium">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
                   <div>
                     <span className="font-bold">File Compatible:</span> Successfully parsed <strong>{fileName}</strong>.
                   </div>
@@ -198,7 +208,7 @@ export function CsvInspectorModal() {
                 </span>
               </div>
 
-              {/* Extracted Machine Metadata */}
+              {/* Header Metadata Display */}
               {Object.keys(detectedMetadata).length > 0 && (
                 <div className="bg-purple-50/60 border border-purple-100 p-4 rounded-xl">
                   <h4 className="text-xs font-bold text-purple-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -215,7 +225,7 @@ export function CsvInspectorModal() {
                 </div>
               )}
 
-              {/* Detected Headers */}
+              {/* Column Headers Detected */}
               <div>
                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Detected Table Column Headers</h4>
                 <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-200">
@@ -227,7 +237,7 @@ export function CsvInspectorModal() {
                 </div>
               </div>
 
-              {/* Mapped Row Preview Table */}
+              {/* Ingestion Preview Table */}
               <div>
                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Normalized Ingestion Preview (First {rowsPreview.length} Rows)</h4>
                 <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm max-h-64 overflow-y-auto">
@@ -266,7 +276,7 @@ export function CsvInspectorModal() {
           <span>Drop machine CSV files directly into <code>smt-backend/dropzone</code> for live IIoT ingestion</span>
           <button
             onClick={() => setIsOpen(false)}
-            className="px-4 py-1.5 bg-purple-900 text-white font-bold rounded-lg hover:bg-purple-800 transition-colors"
+            className="px-4 py-1.5 bg-purple-900 text-white font-bold rounded-lg hover:bg-purple-800 transition-colors cursor-pointer"
           >
             Close Inspector
           </button>

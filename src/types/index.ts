@@ -1,35 +1,39 @@
-export type ComponentStatus = 'ok' | 'warning' | 'critical';
-export type StatusFilterType = 'all' | 'critical' | 'warning' | 'ok';
+// SMT Floor & Reel Inventory TypeScript Types
+// -------------------------------------------------------------
+// This file defines the shape of our data objects used across the frontend.
 
+// Information about a single feeder slot on the SMT pick-and-place machine
 export interface SmtComponent {
-  part_number: string;
-  feeder_position: string;
-  description: string;
-  current_quantity: number;
-  quantity_threshold: number;
-  status: ComponentStatus;
-  line_id: string;
-  parts_per_second?: number | null; 
-  time_left_seconds?: number | null; 
+  line_id: string;              // e.g. 'line_1'
+  feeder_position: string;      // e.g. 'Feeder_12'
+  part_number: string;          // e.g. 'RC0402FR-0710KL'
+  description: string;          // e.g. '10K 0402 Resistor'
+  current_quantity: number;     // How many parts are currently left on the reel
+  quantity_threshold: number;   // Low stock alert boundary (default: 500)
+  parts_per_second?: number | null;   // Real-time placement speed
+  time_left_seconds?: number | null;  // Estimated seconds remaining before reel runs dry
+  status: 'ok' | 'warning' | 'critical'; // Overall health status
 }
 
-export interface ErpOrderData {
+// Order and customer information coming from the factory ERP system
+export interface ErpLineData {
   customer: string;
   ordered_pcbs: number;
   completed_pcbs: number;
   expected_finish: string;
-  schedule_status: 'ahead of schedule' | 'behind schedule' | 'on schedule';
+  schedule_status: 'ahead of schedule' | 'on schedule' | 'behind schedule';
   deadline: string;
 }
 
+// SMT Production line details
 export interface SmtLine {
   id: string;
   name: string;
   connection_status: 'online' | 'offline' | 'stale';
-  last_updated: number;
-  erp_data?: ErpOrderData;
+  erp_data?: ErpLineData;
 }
 
+// A record created whenever a reel gets reloaded by an operator
 export interface ReplenishmentEvent {
   id: string;
   timestamp: number;
@@ -72,79 +76,64 @@ export type ReelStatus = 'ok' | 'warning' | 'critical';
  * Feeder and line data are NOT here — they come from machine data separately.
  */
 export interface ReelRecord {
-  reelId: string;              // System-generated: REEL00001, REEL00002, ...
-  partNumber: string;          // From QR field 0
-  partsId: string;             // From QR field 1
-  lotId: string;               // From QR field 2
-  initialQuantity: number;     // From QR field 3 — never changes after scan
-  remainingQuantity: number;   // Updated by machine consumption data
-  status: 'ACTIVE' | 'DEPLETED';  // Business status stored in JSON
-  scannedAt: string;           // ISO timestamp of first scan
-  lastUpdated: string;         // ISO timestamp of last change
-  // Computed by backend before sending to frontend (not stored in JSON)
-  computedStatus?: ReelStatus;
+  reelId: string;               // e.g. 'REEL00001'
+  partNumber: string;           // e.g. 'GME34681008DJRE'
+  partsId: string;              // e.g. 'PP2344F'
+  lotId: string;                // e.g. 'LT0016'
+  initialQuantity: number;      // Quantity when reel was first scanned
+  remainingQuantity: number;    // Current stock remaining on reel
+  status: string;               // 'ACTIVE', 'DEPLETED', etc.
+  scannedAt: string;            // ISO timestamp when first scanned
+  lastUpdated?: string;         // ISO timestamp when last updated
+  computedStatus?: 'ok' | 'warning' | 'critical'; // Low-stock status
 }
 
-/** The structure of each category JSON file (e.g. CAPACITOR.json) */
-export interface CategoryInventory {
+// Metadata for a component category (from MASTER.json)
+export interface MasterComponentEntry {
+  file: string;                 // JSON file name, e.g. 'RESISTOR.json'
+  label: string;                // Friendly display name, e.g. 'Resistors'
+  symbol: string;               // Short badge label, e.g. 'R'
+  color: string;                // Category theme color, e.g. '#3B82F6'
+}
+
+// Mapping of a specific part number to its parent category (from MASTER.json)
+export interface MasterPartMapping {
+  componentType: string;        // e.g. 'RESISTOR'
+  file: string;                 // e.g. 'RESISTOR.json'
+  description?: string;         // e.g. '10K 0402 1% SMD Resistor'
+}
+
+// Full structure of MASTER.json
+export interface MasterConfig {
+  version: string;
+  componentTypes: Record<string, MasterComponentEntry>;
+  partMappings: Record<string, MasterPartMapping>;
+}
+
+// Format definition for barcode scanners (from qr-format.json)
+export interface QrFieldDef {
+  name: string;
+  position: number;
+  type: string;
+  required: boolean;
+  transform?: string;
+  default?: any;
+}
+
+export interface QrFormatConfig {
+  separator: string;
+  fields: QrFieldDef[];
+  description?: string;
+}
+
+// Inventory data for a category
+export interface CategoryReelData {
   componentType: string;
+  thresholds?: { criticalQuantity: number; warningQuantity: number };
   reels: ReelRecord[];
 }
 
-/** One entry inside MASTER.json partMappings */
-export interface MasterPartMapping {
-  componentType: string;
-  file: string;
-  description?: string;
-}
-
-/** One entry inside MASTER.json componentTypes */
-export interface MasterComponentEntry {
-  file: string;
-  label: string;
-  color: string;
-  symbol: string;
-}
-
-/** The full MASTER.json structure */
-export interface MasterConfig {
-  version: string;
-  description?: string;
-  /** Part number → component type routing (used for QR scan lookup) */
-  partMappings: Record<string, MasterPartMapping>;
-  /** Component type → display metadata (used for rendering categories) */
-  componentTypes: Record<string, MasterComponentEntry>;
-}
-
-/** One field definition inside qr-format.json */
-export interface QrFieldConfig {
-  position: number;
-  name: string;
-  transform?: 'uppercase' | 'lowercase' | 'parseInt' | 'parseFloat';
-  required?: boolean;
-  default?: string | number;
-  description?: string;
-}
-
-/** The full qr-format.json structure */
-export interface QrFormatConfig {
-  separator: string;           // '$' in the actual format
-  fields: QrFieldConfig[];
-}
-
-/** One line entry inside lines.json */
-export interface LineConfig {
-  id: string;
-  name: string;
-  defaultThresholds: { warning: number; critical: number };
-}
-
-/** The full lines.json structure */
-export interface LinesConfig {
-  lines: LineConfig[];
-}
-
-/** Response from POST /api/scan */
+// Result object returned by the server after scanning a QR code
 export interface ScanResult {
   success: boolean;
   action: 'created' | 'already_registered';
@@ -156,5 +145,20 @@ export interface ScanResult {
   initialQuantity: number;
   file: string;
   excelFile?: string;
-  message: string;
+  message?: string;
+}
+
+// Filter choices for the feeder inventory list
+export type StatusFilterType = 'all' | 'critical' | 'warning' | 'ok';
+
+// Header alert banner for low-stock and replenishment notices
+export interface HeaderAlert {
+  type: 'threshold' | 'exhausted' | 'replenished';
+  feeder_position: string;
+  part_number: string;
+  line_id: string;
+  time_left_seconds?: number | null;
+  current_quantity?: number;
+  replenished_amount?: number;
+  timestamp: number;
 }

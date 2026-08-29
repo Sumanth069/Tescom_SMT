@@ -1,20 +1,32 @@
+// SMT Floor Ingestion Server (Port 3001)
+// -------------------------------------------------------------
+// What this server does in simple terms:
+// 1. Watches the './dropzone' folder for new CSV files coming from SMT machines.
+// 2. Reads the CSV data to see how many components are on each feeder slot.
+// 3. Figures out how fast parts are being used up and predicts when they'll run out.
+// 4. Sends live updates to the browser dashboard using WebSockets (Socket.io).
+
 const { Server } = require("socket.io");
 const fs = require('fs');
 const path = require('path');
 const chokidar = require('chokidar');
 
+// Start up the Socket.io WebSocket server on port 3001
 const PORT = process.env.PORT || 3001;
 const io = new Server(PORT, { cors: { origin: "*" } });
 
-// --- MEMORY CACHE & REPLENISHMENT HISTORY ---
-// feederCache: { 'line_1-Feeder_20': { last_qty: 4980, last_timestamp: 16000000, known_rate: 4.5, max_qty: 5000 } }
-const feederCache = {}; 
+// Memory cache to remember previous quantities so we can calculate burn rate
+// Example entry: 'line_1-Feeder_20' -> { last_qty: 4980, last_timestamp: 16000000, known_rate: 4.5 }
+const feederCache = {};
+
+// Keep a list of the last 100 times a feeder got reloaded with a new reel
 const replenishmentHistory = [];
 
+// Make sure the dropzone folder exists so machines have a place to save CSVs
 const dropzonePath = path.join(__dirname, 'dropzone');
 if (!fs.existsSync(dropzonePath)) fs.mkdirSync(dropzonePath, { recursive: true });
 
-// ERP State
+// Simulated customer orders from the factory ERP system
 let erpState = [
   { id: 'line_1', name: 'SMT Line 1 (YSM20R)', connection_status: 'online', erp_data: { customer: 'Tesla', ordered_pcbs: 5000, completed_pcbs: 3200, expected_finish: '14:00', schedule_status: 'on schedule', deadline: 'Tomorrow' } },
   { id: 'line_2', name: 'SMT Line 2', connection_status: 'online', erp_data: { customer: 'Cisco', ordered_pcbs: 1200, completed_pcbs: 1150, expected_finish: '10:30', schedule_status: 'ahead of schedule', deadline: 'Tomorrow' } },
@@ -22,58 +34,74 @@ let erpState = [
   { id: 'line_4', name: 'SMT Line 4', connection_status: 'online', erp_data: { customer: 'Sony', ordered_pcbs: 10000, completed_pcbs: 1000, expected_finish: '16:00', schedule_status: 'on schedule', deadline: 'Monday' } }
 ];
 
+// Every 10 seconds, bump up the number of completed PCBs slightly and tell the frontend
 setInterval(() => {
-  erpState = erpState.map(l => ({
-    ...l,
-    erp_data: { ...l.erp_data, completed_pcbs: Math.min(l.erp_data.ordered_pcbs, l.erp_data.completed_pcbs + 3) }
+  erpState = erpState.map(line => ({
+    ...line,
+    erp_data: {
+      ...line.erp_data,
+      completed_pcbs: Math.min(line.erp_data.ordered_pcbs, line.erp_data.completed_pcbs + 3)
+    }
   }));
   io.emit("line_data_update", erpState);
 }, 10000);
 
-// --- UNIVERSAL PARSER FOR YAMAHA YSM20R & STANDARD CSV LOGS ---
+// Helper function to read raw CSV text and turn it into clean JavaScript objects.
+// Handles both standard table CSVs and Yamaha machine logs with extra header info.
 function parseCSVContent(content, fallbackLineId) {
+  // Remove invisible UTF-8 character if present at the start of the file
   const cleanContent = content.replace(/^\uFEFF/, '');
   const lines = cleanContent.split(/\r?\n/).filter(l => l.trim() !== '');
-  if (lines.length === 0) return { metadata: {}, rows: [] };
+  if (lines.length === 0) return { metadata: {}, rawHeaders: [], parsedRawRows: [] };
 
   const metadata = {};
   let headerIndex = -1;
 
+  // Look through lines to find where the actual column headers begin
   for (let i = 0; i < lines.length; i++) {
     const parts = lines[i].split(',').map(p => p.trim());
     const firstCol = (parts[0] || '').toLowerCase();
-    
-    const isHeaderLine = 
+
+    const isHeaderLine =
       firstCol === 'mount table' ||
       firstCol === 'line_id' ||
       firstCol === 'line' ||
       parts.some(p => {
         const lower = p.toLowerCase();
-        return lower === 'set num' || lower === 'parts name' || lower === 'feeder_position' || lower === 'part_number' || lower === 'current_quantity';
+        return (
+          lower === 'set num' ||
+          lower === 'parts name' ||
+          lower === 'feeder_position' ||
+          lower === 'part_number' ||
+          lower === 'current_quantity'
+        );
       });
 
     if (isHeaderLine) {
       headerIndex = i;
       break;
     } else {
+      // Anything before the header line is treated as machine info (metadata)
       if (parts[0] && parts[1]) {
         metadata[parts[0].trim()] = parts[1].trim();
       }
     }
   }
 
+  // If we couldn't find a special header, assume line 0 is the header
   if (headerIndex === -1) headerIndex = 0;
 
   const rawHeaders = lines[headerIndex].split(',').map(h => h.trim());
   const parsedRawRows = [];
 
+  // Parse each data row using the headers
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const values = lines[i].split(',').map(v => v.trim());
     if (values.length < 2) continue;
 
     const row = {};
-    rawHeaders.forEach((h, idx) => {
-      if (h) row[h] = values[idx] || '';
+    rawHeaders.forEach((header, idx) => {
+      if (header) row[header] = values[idx] || '';
     });
     parsedRawRows.push(row);
   }
@@ -81,7 +109,7 @@ function parseCSVContent(content, fallbackLineId) {
   return { metadata, rawHeaders, parsedRawRows };
 }
 
-// --- NORMALIZATION & INGESTION ---
+// Main function that runs whenever a CSV file is dropped into the folder
 const processCSV = (filePath) => {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -95,11 +123,11 @@ const processCSV = (filePath) => {
     const now = Date.now();
     const results = [];
 
-    // Check if this is Yamaha Placement Log (contains 'Set Num' and 'Parts Name')
+    // Check if this file came from a Yamaha placement log
     const isYamahaMountLog = parsedRawRows[0]['Set Num'] !== undefined || parsedRawRows[0]['Mount Table'] !== undefined;
 
     if (isYamahaMountLog) {
-      // Group mounted parts by Feeder Slot ('Set Num')
+      // Group placement records by feeder slot (Set Num)
       const feederGroup = {};
 
       parsedRawRows.forEach(row => {
@@ -120,12 +148,13 @@ const processCSV = (filePath) => {
           };
         }
 
+        // Only count parts that were actually placed
         if (notMounted === '0') {
           feederGroup[feederPos].mountedCount += 1;
         }
       });
 
-      // Process grouped Yamaha feeder slots
+      // Calculate stock and burn speed for each feeder slot
       Object.values(feederGroup).forEach(group => {
         const line_id = fallbackLineId;
         const cacheKey = `${line_id}-${group.feeder_position}`;
@@ -139,9 +168,9 @@ const processCSV = (filePath) => {
         if (feederCache[cacheKey]) {
           const cache = feederCache[cacheKey];
           current_qty = Math.max(0, cache.last_qty - group.mountedCount);
-          
+
           if (current_qty <= 20) {
-            // Replenish reel when depleted
+            // Auto-reload to simulate loading a fresh reel
             current_qty = defaultCap;
           }
 
@@ -149,12 +178,13 @@ const processCSV = (filePath) => {
           const delta_time_sec = Math.max(1, (now - cache.last_timestamp) / 1000);
 
           if (delta_qty > 0) {
+            // Parts were consumed: calculate how many parts per second
             const inst_rate = delta_qty / delta_time_sec;
-            const alpha = 0.3;
+            const alpha = 0.3; // smooth out sudden spikes
             rate_per_sec = cache.known_rate != null ? (alpha * inst_rate + (1 - alpha) * cache.known_rate) : inst_rate;
             feederCache[cacheKey].known_rate = rate_per_sec;
           } else if (delta_qty < 0) {
-            // Replenishment event
+            // Quantity went UP -> operator loaded a new reel!
             const replenished_amount = current_qty - cache.last_qty;
             const event = {
               id: `${now}-${cacheKey}`,
@@ -174,6 +204,7 @@ const processCSV = (filePath) => {
             rate_per_sec = 0;
           }
 
+          // Estimate how many seconds are left before the reel runs empty
           if (rate_per_sec !== null && rate_per_sec > 0) {
             time_left_sec = Math.floor(current_qty / rate_per_sec);
             if (time_left_sec <= 30) status = 'critical';
@@ -201,7 +232,7 @@ const processCSV = (filePath) => {
       });
 
     } else {
-      // Standard Flat CSV processing (explicit current_quantity)
+      // Standard simple CSV where each row has quantity directly
       parsedRawRows.forEach(rawRow => {
         const cleanRow = {};
         for (const [k, v] of Object.entries(rawRow)) {
@@ -213,7 +244,7 @@ const processCSV = (filePath) => {
         const feeder_pos = cleanRow.feeder_position || cleanRow.feeder || cleanRow.feeder_pos || cleanRow.slot || cleanRow.slot_no || cleanRow.position || (cleanRow.set_num ? `Feeder_${cleanRow.set_num}` : 'Feeder_1');
         const part_no = cleanRow.part_number || cleanRow.part_no || cleanRow.part || cleanRow.parts_name || cleanRow.item_code || 'PART-UNKNOWN';
         const desc = cleanRow.description || cleanRow.desc || cleanRow.parts_id || `Component ${part_no}`;
-        
+
         const parseNum = (v, defaultVal = 0) => {
           if (!v || v === 'N/A' || v === '-') return defaultVal;
           const parsed = parseInt(String(v).replace(/,/g, ''), 10);
@@ -239,6 +270,7 @@ const processCSV = (filePath) => {
             rate_per_sec = cache.known_rate != null ? (alpha * inst_rate + (1 - alpha) * cache.known_rate) : inst_rate;
             feederCache[cacheKey].known_rate = rate_per_sec;
           } else if (delta_qty < 0) {
+            // Replenished with a new reel
             const replenished_amount = current_qty - cache.last_qty;
             const event = {
               id: `${now}-${cacheKey}`,
@@ -285,6 +317,7 @@ const processCSV = (filePath) => {
       });
     }
 
+    // Broadcast the full batch of feeder updates to all connected browser screens
     if (results.length > 0) {
       io.emit("inventory_batch_update", results);
     }
@@ -293,17 +326,18 @@ const processCSV = (filePath) => {
   }
 };
 
-// OS-level Kernel File Watcher
-const watcher = chokidar.watch(dropzonePath, { 
-  persistent: true, 
+// Watch the dropzone folder for incoming CSV files from machines
+const watcher = chokidar.watch(dropzonePath, {
+  persistent: true,
   awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
   ignoreInitial: false
 });
 
 watcher
-  .on('add', p => { if (p.endsWith('.csv')) processCSV(p); })
-  .on('change', p => { if (p.endsWith('.csv')) processCSV(p); });
+  .on('add', filePath => { if (filePath.endsWith('.csv')) processCSV(filePath); })
+  .on('change', filePath => { if (filePath.endsWith('.csv')) processCSV(filePath); });
 
+// When a new browser tab connects, send it the current line status and recent reload history
 io.on("connection", (socket) => {
   socket.emit("line_data_update", erpState);
   socket.emit("replenishment_history", replenishmentHistory);
@@ -313,4 +347,4 @@ io.on("connection", (socket) => {
   });
 });
 
-console.log(`Middleware Server Running on ${PORT}...`);
+console.log(`Middleware Server Running on Port ${PORT}...`);

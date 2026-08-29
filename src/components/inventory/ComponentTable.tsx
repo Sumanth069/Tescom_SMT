@@ -1,3 +1,11 @@
+// Live SMT Feeder Inventory Table
+// -------------------------------------------------------------
+// This component renders the table of pick-and-place feeder slots:
+// 1. High Performance Virtualization (@tanstack/react-virtual):
+//    Renders hundreds of feeder rows smoothly with zero browser lag.
+// 2. Multi-Criteria Sorting: Feeder slot number, time remaining, health status, quantity, speed, or part number.
+// 3. Dynamic Depletion Warnings: Formats seconds into human-readable minutes and seconds ("2m 15s").
+
 import { useMemo, useRef, useState } from 'react';
 import { useSmtStore } from '../../store/useSmtStore';
 import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
@@ -6,10 +14,12 @@ import { ArrowDownUp, SearchX } from 'lucide-react';
 import type { SmtComponent } from '../../types';
 import clsx from 'clsx';
 
+// Available sorting choices
 type SortOption = 'feeder' | 'part_number' | 'quantity' | 'speed' | 'time_left' | 'status';
 
 const columnHelper = createColumnHelper<SmtComponent>();
 
+// Formats duration into minutes and seconds (e.g. "2m 15s")
 const formatTime = (seconds: number | null | undefined) => {
   if (seconds === null || seconds === undefined) return <span className="text-gray-400 italic">Calculating...</span>;
   if (seconds === 0) return "Depleted";
@@ -18,6 +28,7 @@ const formatTime = (seconds: number | null | undefined) => {
   return `${m}m ${s}s`;
 };
 
+// Table column layout configuration
 const columns = [
   columnHelper.accessor('feeder_position', { header: 'Feeder', cell: info => <span className="font-mono text-sm font-bold text-gray-700">{info.getValue()}</span> }),
   columnHelper.accessor('part_number', { header: 'Part Number', cell: info => <span className="font-bold text-gray-900">{info.getValue()}</span> }),
@@ -63,24 +74,25 @@ const columns = [
   })
 ];
 
+// Main Feeder Inventory Table Component:
+// Renders the virtualized feeder list with multi-column sorting, depletion countdowns, and health tags.
 export function ComponentTable() {
   const activeLineId = useSmtStore((state) => state.activeLineId);
   const componentsDict = useSmtStore((state) => state.components);
   const searchQuery = useSmtStore((state) => state.searchQuery);
   const statusFilter = useSmtStore((state) => state.statusFilter);
-  
+
   const [sortBy, setSortBy] = useState<SortOption>('feeder');
 
+  // Filter and sort the feeder list for the active line
   const data = useMemo(() => {
     const rawList = Object.values(componentsDict).filter((comp) => comp.line_id === activeLineId);
-    
+
     // Apply Search & Status Filters
     const filtered = rawList.filter((comp) => {
-      // Status Filter
       if (statusFilter !== 'all' && comp.status !== statusFilter) {
         return false;
       }
-      // Search Query Filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesFeeder = comp.feeder_position.toLowerCase().includes(q);
@@ -97,20 +109,20 @@ export function ComponentTable() {
           const numA = parseInt(a.feeder_position.replace(/\D/g, '') || '0', 10);
           const numB = parseInt(b.feeder_position.replace(/\D/g, '') || '0', 10);
           return numA - numB;
-          
+
         case 'part_number':
           return a.part_number.localeCompare(b.part_number);
-          
+
         case 'quantity':
           return a.current_quantity - b.current_quantity;
-          
+
         case 'speed':
           return (b.parts_per_second || 0) - (a.parts_per_second || 0);
-          
+
         case 'status':
           const statusWeight = { critical: 1, warning: 2, ok: 3 };
           return statusWeight[a.status] - statusWeight[b.status];
-          
+
         case 'time_left':
         default:
           if (a.time_left_seconds == null && b.time_left_seconds != null) return 1;
@@ -125,6 +137,7 @@ export function ComponentTable() {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const { rows } = table.getRowModel();
 
+  // High performance DOM row virtualizer
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => tableContainerRef.current,
@@ -138,7 +151,7 @@ export function ComponentTable() {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-      {/* THE SORTING TOOLBAR */}
+      {/* Sorting Toolbar */}
       <div className="px-6 py-3.5 border-b border-gray-200 bg-gray-50 flex justify-between items-center gap-3">
         <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
           Showing {data.length} feeder components
@@ -187,7 +200,7 @@ export function ComponentTable() {
               {rowVirtualizer.getVirtualItems().map(virtualRow => {
                 const row = rows[virtualRow.index];
                 return (
-                  <tr 
+                  <tr
                     key={row.id}
                     className="flex w-full hover:bg-gray-50 transition-colors border-b border-gray-100 absolute left-0 top-0"
                     style={{ height: `${virtualRow.size}px`, transform: `translateY(${virtualRow.start}px)` }}
