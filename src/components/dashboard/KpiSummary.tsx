@@ -1,13 +1,25 @@
+// Floor KPI Metrics Summary Banner
+// -------------------------------------------------------------
+// This banner shows key factory metrics at a glance:
+// 1. Active Feeders: Total feeder slots currently active on the selected line.
+// 2. Critical Alerts: Feeders that will run empty in less than 30 seconds (flashing beacon).
+// 3. Warnings: Feeders that will run empty in less than 90 seconds.
+// 4. Line Speed: Combined placement rate of the line in parts per second (pts/s).
+// 5. Reel Reloads: Total times reels were replenished on this line (clicks to open log).
+
 import { useMemo } from 'react';
 import { useSmtStore } from '../../store/useSmtStore';
 import { AlertTriangle, AlertCircle, Layers, Zap, RefreshCw } from 'lucide-react';
 
+// Main Floor KPI Summary Component:
+// Computes and renders top statistics cards for active feeders, critical alerts, warnings, and speed.
 export function KpiSummary() {
   const activeLineId = useSmtStore((state) => state.activeLineId);
   const componentsDict = useSmtStore((state) => state.components);
   const replenishmentEvents = useSmtStore((state) => state.replenishmentEvents);
   const setIsReplenishmentModalOpen = useSmtStore((state) => state.setIsReplenishmentModalOpen);
 
+  // Calculate live summary totals for the selected line
   const metrics = useMemo(() => {
     const lineComponents = Object.values(componentsDict).filter(
       (comp) => comp.line_id === activeLineId
@@ -44,7 +56,7 @@ export function KpiSummary() {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-      {/* 1. Total Feeders Card */}
+      {/* 1. Active Feeders Card */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Active Feeders</p>
@@ -58,8 +70,8 @@ export function KpiSummary() {
 
       {/* 2. Critical Alerts Card */}
       <div className={`border rounded-xl p-4 shadow-sm flex items-center justify-between transition-all ${
-        metrics.criticalCount > 0 
-          ? 'bg-red-50/80 border-red-200 ring-2 ring-red-500/20' 
+        metrics.criticalCount > 0
+          ? 'bg-red-50/80 border-red-200 ring-2 ring-red-500/20'
           : 'bg-white border-gray-200'
       }`}>
         <div>
@@ -92,7 +104,7 @@ export function KpiSummary() {
         </div>
       </div>
 
-      {/* 4. Floor Speed Card */}
+      {/* 4. Line Placement Speed Card */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Line Speed</p>
@@ -106,10 +118,10 @@ export function KpiSummary() {
         </div>
       </div>
 
-      {/* 5. Replenishments Card */}
-      <button 
+      {/* 5. Replenishments Counter Card */}
+      <button
         onClick={() => setIsReplenishmentModalOpen(true)}
-        className="bg-white border border-gray-200 hover:border-blue-300 rounded-xl p-4 shadow-sm flex items-center justify-between text-left group transition-all"
+        className="bg-white border border-gray-200 hover:border-blue-300 rounded-xl p-4 shadow-sm flex items-center justify-between text-left group transition-all cursor-pointer"
       >
         <div>
           <p className="text-xs font-bold text-blue-600 group-hover:text-blue-700 uppercase tracking-wider flex items-center gap-1">
