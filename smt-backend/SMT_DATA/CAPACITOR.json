@@ -2,15 +2,15 @@
   "componentType": "CAPACITOR",
   "reels": [
     {
-      "reelId": "REEL00011",
+      "reelId": "REEL00014",
       "partNumber": "GME34681008DJRE",
-      "partsId": "PSNEW1",
-      "lotId": "LT-EXCEL",
+      "partsId": "PSMH62R",
+      "lotId": "LT-TEST",
       "initialQuantity": 5000,
       "remainingQuantity": 5000,
       "status": "ACTIVE",
-      "scannedAt": "2026-08-20T07:11:53.082Z",
-      "lastUpdated": "2026-08-20T07:11:53.082Z",
+      "scannedAt": "2026-08-25T08:37:13.882Z",
+      "lastUpdated": "2026-08-25T08:37:13.882Z",
       "computedStatus": "ok"
     }
   ]

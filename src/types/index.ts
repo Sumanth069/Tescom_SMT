@@ -45,7 +45,36 @@ export interface ReplenishmentEvent {
   replenished_amount: number;
 }
 
-// A scanned barcode record stored in the category JSON and Excel archives
+export type HeaderAlertType = 'exhausted' | 'threshold' | 'critical' | 'warning' | 'info';
+
+export interface HeaderAlert {
+  type: HeaderAlertType;
+  message: string;
+  count?: number;
+  feeder?: string;
+  partNumber?: string;
+  timestamp?: number;
+}
+
+export interface KpiMetrics {
+  totalFeeders: number;
+  criticalCount: number;
+  warningCount: number;
+  okCount: number;
+  totalConsumptionRate: number;
+}
+
+// ─── REEL INVENTORY TYPES ─────────────────────────────────────────────────────
+
+/** Status computed from remainingQuantity / initialQuantity ratio */
+export type ReelStatus = 'ok' | 'warning' | 'critical';
+
+/**
+ * A single reel record stored inside a category JSON file (e.g. CAPACITOR.json).
+ * Fields come from: QR scan (partNumber, partsId, lotId, initialQuantity)
+ * and system-generated (reelId, scannedAt, lastUpdated, remainingQuantity).
+ * Feeder and line data are NOT here — they come from machine data separately.
+ */
 export interface ReelRecord {
   reelId: string;               // e.g. 'REEL00001'
   partNumber: string;           // e.g. 'GME34681008DJRE'

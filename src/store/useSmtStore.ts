@@ -1,11 +1,5 @@
-// Global State Store (Zustand)
-// -------------------------------------------------------------
-// This store holds the main frontend application state:
-// 1. Live feeder inventory for all 4 SMT lines.
-// 2. Scanned barcode reel records and MASTER.json catalog.
-// 3. User search terms, status filters, and audio mute settings.
-// 4. Modal popup states (Live Excel, Replenishment Log, CSV Inspector).
-// 5. Header alert messages and alarms.
+import { create } from 'zustand';
+import type { SmtComponent, SmtLine, ReplenishmentEvent, StatusFilterType, CategoryInventory, MasterConfig, HeaderAlert } from '../types';
 
 import { create } from 'zustand';
 import type {
@@ -34,7 +28,13 @@ interface SmtStore {
   isReplenishmentModalOpen: boolean;
   isCsvInspectorOpen: boolean;
 
-  // Barcode Reel Inventory
+  // ── HEADER WARNING / ALERT ───────────────────────────────────
+  headerAlert: HeaderAlert | null;
+
+  // ── REEL INVENTORY (JSON-driven) ──────────────────────────────
+  /** Full reel inventory keyed by component type (e.g. "RESISTOR") */
+  reelInventory: Record<string, CategoryInventory>;
+  /** Parsed MASTER.json — defines which types exist and their metadata */
   masterConfig: MasterConfig | null;
   reelInventory: Record<string, CategoryReelData>;
   isReelInventoryLoading: boolean;
@@ -45,8 +45,18 @@ interface SmtStore {
 
   // Store Actions (Functions to change state)
   setActiveLine: (lineId: string) => void;
-  updateLines: (linesData: SmtLine[]) => void;
-  updateComponentsBatch: (componentsBatch: SmtComponent[]) => void;
+  setSearchQuery: (query: string) => void;
+  setStatusFilter: (filter: StatusFilterType) => void;
+  toggleSoundAlert: () => void;
+  setIsReplenishmentModalOpen: (open: boolean) => void;
+  setIsCsvInspectorOpen: (open: boolean) => void;
+  setHeaderAlert: (alert: HeaderAlert | null) => void;
+  clearHeaderAlert: () => void;
+
+  updateInventoryBatch: (newComponents: SmtComponent[]) => void;
+  updateLineStatus: (lineId: string, status: SmtLine['connection_status']) => void;
+  updateLinesData: (linesArray: SmtLine[]) => void;
+  
   addReplenishmentEvent: (event: ReplenishmentEvent) => void;
   setReplenishmentHistory: (events: ReplenishmentEvent[]) => void;
 
@@ -88,6 +98,11 @@ export const useSmtStore = create<SmtStore>((set) => ({
   isReplenishmentModalOpen: false,
   isCsvInspectorOpen: false,
 
+  // Header Warning / Alert initial state
+  headerAlert: null,
+
+  // Reel inventory initial state
+  reelInventory: {},
   masterConfig: null,
   reelInventory: {},
   isReelInventoryLoading: true,
@@ -97,6 +112,13 @@ export const useSmtStore = create<SmtStore>((set) => ({
 
   // Change which production line is selected in the dropdown
   setActiveLine: (lineId) => set({ activeLineId: lineId }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setStatusFilter: (statusFilter) => set({ statusFilter }),
+  toggleSoundAlert: () => set((state) => ({ soundAlertEnabled: !state.soundAlertEnabled })),
+  setIsReplenishmentModalOpen: (open) => set({ isReplenishmentModalOpen: open }),
+  setIsCsvInspectorOpen: (open) => set({ isCsvInspectorOpen: open }),
+  setHeaderAlert: (alert) => set({ headerAlert: alert }),
+  clearHeaderAlert: () => set({ headerAlert: null }),
 
   // Update customer order info received from the server
   updateLines: (linesData) => set((state) => {
