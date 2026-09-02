@@ -101,12 +101,14 @@ setInterval(() => {
     }
 
     const filename = `telemetry_${line}.csv`;
-    const tempPath = path.join(DROPZONE, `${filename}.tmp`);
     const finalPath = path.join(DROPZONE, filename);
 
-    // Write to a temporary file first then rename it so the reader never reads a half-written file
-    fs.writeFileSync(tempPath, csvContent, 'utf8');
-    fs.renameSync(tempPath, finalPath);
+    // Safely write CSV file, catching any temporary Windows file locks from active readers
+    try {
+      fs.writeFileSync(finalPath, csvContent, 'utf8');
+    } catch {
+      // Windows lock contention during read; smoothly skip this tick
+    }
   });
 }, 2000);
 

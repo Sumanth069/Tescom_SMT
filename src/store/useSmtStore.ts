@@ -1,5 +1,11 @@
-import { create } from 'zustand';
-import type { SmtComponent, SmtLine, ReplenishmentEvent, StatusFilterType, CategoryInventory, MasterConfig, HeaderAlert } from '../types';
+// Global State Store (Zustand)
+// -------------------------------------------------------------
+// This store holds the main frontend application state:
+// 1. Live feeder inventory for all 4 SMT lines.
+// 2. Scanned barcode reel records and MASTER.json catalog.
+// 3. User search terms, status filters, and audio mute settings.
+// 4. Modal popup states (Live Excel, Replenishment Log, CSV Inspector).
+// 5. Header alert messages and alarms.
 
 import { create } from 'zustand';
 import type {
@@ -28,13 +34,7 @@ interface SmtStore {
   isReplenishmentModalOpen: boolean;
   isCsvInspectorOpen: boolean;
 
-  // ── HEADER WARNING / ALERT ───────────────────────────────────
-  headerAlert: HeaderAlert | null;
-
-  // ── REEL INVENTORY (JSON-driven) ──────────────────────────────
-  /** Full reel inventory keyed by component type (e.g. "RESISTOR") */
-  reelInventory: Record<string, CategoryInventory>;
-  /** Parsed MASTER.json — defines which types exist and their metadata */
+  // Barcode Reel Inventory
   masterConfig: MasterConfig | null;
   reelInventory: Record<string, CategoryReelData>;
   isReelInventoryLoading: boolean;
@@ -45,18 +45,8 @@ interface SmtStore {
 
   // Store Actions (Functions to change state)
   setActiveLine: (lineId: string) => void;
-  setSearchQuery: (query: string) => void;
-  setStatusFilter: (filter: StatusFilterType) => void;
-  toggleSoundAlert: () => void;
-  setIsReplenishmentModalOpen: (open: boolean) => void;
-  setIsCsvInspectorOpen: (open: boolean) => void;
-  setHeaderAlert: (alert: HeaderAlert | null) => void;
-  clearHeaderAlert: () => void;
-
-  updateInventoryBatch: (newComponents: SmtComponent[]) => void;
-  updateLineStatus: (lineId: string, status: SmtLine['connection_status']) => void;
-  updateLinesData: (linesArray: SmtLine[]) => void;
-  
+  updateLines: (linesData: SmtLine[]) => void;
+  updateComponentsBatch: (componentsBatch: SmtComponent[]) => void;
   addReplenishmentEvent: (event: ReplenishmentEvent) => void;
   setReplenishmentHistory: (events: ReplenishmentEvent[]) => void;
 
@@ -98,11 +88,6 @@ export const useSmtStore = create<SmtStore>((set) => ({
   isReplenishmentModalOpen: false,
   isCsvInspectorOpen: false,
 
-  // Header Warning / Alert initial state
-  headerAlert: null,
-
-  // Reel inventory initial state
-  reelInventory: {},
   masterConfig: null,
   reelInventory: {},
   isReelInventoryLoading: true,
@@ -111,17 +96,10 @@ export const useSmtStore = create<SmtStore>((set) => ({
   activeHeaderAlert: null,
 
   // Change which production line is selected in the dropdown
-  setActiveLine: (lineId) => set({ activeLineId: lineId }),
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
-  setStatusFilter: (statusFilter) => set({ statusFilter }),
-  toggleSoundAlert: () => set((state) => ({ soundAlertEnabled: !state.soundAlertEnabled })),
-  setIsReplenishmentModalOpen: (open) => set({ isReplenishmentModalOpen: open }),
-  setIsCsvInspectorOpen: (open) => set({ isCsvInspectorOpen: open }),
-  setHeaderAlert: (alert) => set({ headerAlert: alert }),
-  clearHeaderAlert: () => set({ headerAlert: null }),
+  setActiveLine: (lineId: string) => set({ activeLineId: lineId }),
 
   // Update customer order info received from the server
-  updateLines: (linesData) => set((state) => {
+  updateLines: (linesData: SmtLine[]) => set((state) => {
     const updated = { ...state.lines };
     linesData.forEach((l) => {
       if (updated[l.id]) {
@@ -134,7 +112,7 @@ export const useSmtStore = create<SmtStore>((set) => ({
   }),
 
   // Merge in a fresh batch of feeder updates from the machine
-  updateComponentsBatch: (componentsBatch) => set((state) => {
+  updateComponentsBatch: (componentsBatch: SmtComponent[]) => set((state) => {
     const updated = { ...state.components };
     componentsBatch.forEach((c) => {
       const key = `${c.line_id}_${c.feeder_position}`;
@@ -144,38 +122,38 @@ export const useSmtStore = create<SmtStore>((set) => ({
   }),
 
   // Add a newly logged reload event to the top of the history list
-  addReplenishmentEvent: (event) => set((state) => {
+  addReplenishmentEvent: (event: ReplenishmentEvent) => set((state) => {
     const exists = state.replenishmentEvents.some(e => e.id === event.id);
     if (exists) return state;
     return { replenishmentEvents: [event, ...state.replenishmentEvents].slice(0, 100) };
   }),
 
   // Load the initial list of recent reload events
-  setReplenishmentHistory: (events) => set({ replenishmentEvents: events }),
+  setReplenishmentHistory: (events: ReplenishmentEvent[]) => set({ replenishmentEvents: events }),
 
   // Update the search bar text
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setSearchQuery: (searchQuery: string) => set({ searchQuery }),
 
   // Change the status filter (All, Critical, Warning, OK)
-  setStatusFilter: (statusFilter) => set({ statusFilter }),
+  setStatusFilter: (statusFilter: StatusFilterType) => set({ statusFilter }),
 
   // Toggle speaker audio on/off
   toggleSoundAlert: () => set((state) => ({ soundAlertEnabled: !state.soundAlertEnabled })),
 
   // Open or close the reel reload history dialog
-  setIsReplenishmentModalOpen: (isReplenishmentModalOpen) => set({ isReplenishmentModalOpen }),
+  setIsReplenishmentModalOpen: (isReplenishmentModalOpen: boolean) => set({ isReplenishmentModalOpen }),
 
   // Open or close the CSV diagnostic inspector
-  setIsCsvInspectorOpen: (isCsvInspectorOpen) => set({ isCsvInspectorOpen }),
+  setIsCsvInspectorOpen: (isCsvInspectorOpen: boolean) => set({ isCsvInspectorOpen }),
 
   // Save the MASTER.json catalog
-  setMasterConfig: (masterConfig) => set({ masterConfig }),
+  setMasterConfig: (masterConfig: MasterConfig) => set({ masterConfig }),
 
   // Save the complete category inventory
-  setReelInventoryFull: (reelInventory) => set({ reelInventory, isReelInventoryLoading: false }),
+  setReelInventoryFull: (reelInventory: Record<string, CategoryReelData>) => set({ reelInventory, isReelInventoryLoading: false }),
 
   // Update a single category when a new barcode is scanned
-  updateCategoryReels: (data) => set((state) => ({
+  updateCategoryReels: (data: CategoryReelData) => set((state) => ({
     reelInventory: {
       ...state.reelInventory,
       [data.componentType]: data
@@ -183,16 +161,16 @@ export const useSmtStore = create<SmtStore>((set) => ({
   })),
 
   // Set loading state spinner
-  setReelInventoryLoading: (isReelInventoryLoading) => set({ isReelInventoryLoading }),
+  setReelInventoryLoading: (isReelInventoryLoading: boolean) => set({ isReelInventoryLoading }),
 
   // Open the interactive Live Excel spreadsheet modal
-  openLiveExcel: (category = 'ALL') => set({ activeExcelCategory: category }),
+  openLiveExcel: (category: string = 'ALL') => set({ activeExcelCategory: category }),
 
   // Close the Live Excel spreadsheet modal
   closeLiveExcel: () => set({ activeExcelCategory: null }),
 
   // Show a floating low-stock or reload alert banner
-  setActiveHeaderAlert: (alert) => set({ activeHeaderAlert: alert }),
+  setActiveHeaderAlert: (alert: HeaderAlert | null) => set({ activeHeaderAlert: alert }),
 
   // Dismiss the floating alert banner
   clearHeaderAlert: () => set({ activeHeaderAlert: null })
