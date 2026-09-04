@@ -11,174 +11,226 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useSmtStore } from '../store/useSmtStore';
-import type { ReplenishmentEvent, SmtComponent, CategoryInventory } from '../types';
+import type { SmtComponent, SmtLine, ReplenishmentEvent } from '../types';
 
 const SOCKET_URL = 'http://localhost:3001';
 
-// ─── INDUSTRIAL MULTI-TONE AUDIO ENGINE ───────────────────────────────────────
-let globalAudioCtx: AudioContext | null = null;
-
-function getAudioContext(): AudioContext | null {
-  try {
-    if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtxClass) {
-        globalAudioCtx = new AudioCtxClass();
-      }
-    }
-    if (globalAudioCtx && globalAudioCtx.state === 'suspended') {
-      globalAudioCtx.resume();
-    }
-    return globalAudioCtx;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Sound 1: THRESHOLD WARNING ALARM (Approaching Depletion / Low Stock < 30s)
- * Standard comfortable volume dual-tone chime (640 Hz -> 580 Hz, Gain: ~0.20)
- */
-function playThresholdWarningSound() {
-  try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-
-    // Tone 1: 640 Hz (E5) smooth sine wave
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(640, now);
-    osc1.frequency.exponentialRampToValueAtTime(540, now + 0.16);
-    gain1.gain.setValueAtTime(0.20, now);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(now);
-    osc1.stop(now + 0.16);
-
-    // Tone 2: 580 Hz (D5) smooth sine wave after 0.18s
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'sine';
-    osc2.frequency.setValueAtTime(580, now + 0.18);
-    osc2.frequency.exponentialRampToValueAtTime(480, now + 0.36);
-    gain2.gain.setValueAtTime(0.22, now + 0.18);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(now + 0.18);
-    osc2.stop(now + 0.36);
-  } catch {
-    // Autoplay handling
-  }
-}
-
-/**
- * Sound 2: VERY VERY LOUD FULLY EXHAUSTED EMERGENCY SIREN (0 Quantity / Line Stop Hazard)
- * High-intensity maximum-gain dual sawtooth & square wave industrial klaxon (Gain: ~0.85 - 0.90).
- */
-function playExhaustedAlarmSound() {
-  try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-
-    // Master High-Gain Output Stage
-    const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(0.88, now);
-    masterGain.connect(ctx.destination);
-
-    // High Emergency Pulse 1: 1150 Hz -> 850 Hz piercing sawtooth siren
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(1150, now);
-    osc1.frequency.linearRampToValueAtTime(850, now + 0.18);
-    gain1.gain.setValueAtTime(0.80, now);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-    osc1.connect(gain1);
-    gain1.connect(masterGain);
-    osc1.start(now);
-    osc1.stop(now + 0.18);
-
-    // High Emergency Pulse 2: 850 Hz -> 1180 Hz square wave for heavy factory presence
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'square';
-    osc2.frequency.setValueAtTime(850, now + 0.18);
-    osc2.frequency.linearRampToValueAtTime(1180, now + 0.38);
-    gain2.gain.setValueAtTime(0.85, now + 0.18);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
-    osc2.connect(gain2);
-    gain2.connect(masterGain);
-    osc2.start(now + 0.18);
-    osc2.stop(now + 0.38);
-
-    // High Emergency Pulse 3: 1250 Hz -> 780 Hz piercing peak siren
-    const osc3 = ctx.createOscillator();
-    const gain3 = ctx.createGain();
-    osc3.type = 'sawtooth';
-    osc3.frequency.setValueAtTime(1250, now + 0.38);
-    osc3.frequency.linearRampToValueAtTime(780, now + 0.58);
-    gain3.gain.setValueAtTime(0.90, now + 0.38);
-    gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.58);
-    osc3.connect(gain3);
-    gain3.connect(masterGain);
-    osc3.start(now + 0.38);
-    osc3.stop(now + 0.58);
-  } catch {
-    // Autoplay handling
-  }
-}
-
-// ─── SMT SOCKET HOOK ─────────────────────────────────────────────────────────
-export const useSmtSocket = () => {
-  const socketRef = useRef<Socket | null>(null);
-  const inventorySocketRef = useRef<Socket | null>(null);
-  const previousStateRef = useRef<{ hadExhausted: boolean; hadThreshold: boolean }>({
-    hadExhausted: false,
-    hadThreshold: false
-  });
-
-  const updateInventoryBatch = useSmtStore((state) => state.updateInventoryBatch);
-  const updateLineStatus = useSmtStore((state) => state.updateLineStatus);
-  const updateLinesData = useSmtStore((state) => state.updateLinesData);
+export function useSmtSocket() {
+  const updateComponentsBatch = useSmtStore((state) => state.updateComponentsBatch);
+  const updateLines = useSmtStore((state) => state.updateLines);
   const addReplenishmentEvent = useSmtStore((state) => state.addReplenishmentEvent);
   const setReplenishmentHistory = useSmtStore((state) => state.setReplenishmentHistory);
   const soundAlertEnabled = useSmtStore((state) => state.soundAlertEnabled);
-  const headerAlert = useSmtStore((state) => state.headerAlert);
-  const setHeaderAlert = useSmtStore((state) => state.setHeaderAlert);
-  const setReelInventory = useSmtStore((state) => state.setReelInventory);
-  const updateReelCategory = useSmtStore((state) => state.updateReelCategory);
+  const setActiveHeaderAlert = useSmtStore((state) => state.setActiveHeaderAlert);
+  const activeLineId = useSmtStore((state) => state.activeLineId);
 
-  // ── DEDICATED CONTINUOUS AUDIO LOOPS FOR THRESHOLD VS EXHAUSTED ─────────────
-  useEffect(() => {
-    if (!soundAlertEnabled || !headerAlert) return;
+  const socketRef = useRef<Socket | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
-    if (headerAlert.type === 'exhausted') {
-      // 1. FULLY EXHAUSTED: VERY LOUD rapid emergency siren every 850ms
-      playExhaustedAlarmSound();
-      const interval = setInterval(() => {
-        playExhaustedAlarmSound();
-      }, 850);
+  // Audio interval timers to keep repeating alarm sounds until resolved
+  const warningIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const exhaustedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-      return () => clearInterval(interval);
-    } else if (headerAlert.type === 'threshold' || headerAlert.type === 'critical') {
-      // 2. BELOW THRESHOLD: Standard volume warning chime every 2.6 seconds
-      playThresholdWarningSound();
-      const interval = setInterval(() => {
-        playThresholdWarningSound();
-      }, 2600);
+  // Remembers if an alarm is currently playing so we don't restart it unnecessarily
+  const isWarningAlarmPlayingRef = useRef<boolean>(false);
+  const isExhaustedAlarmPlayingRef = useRef<boolean>(false);
 
-      return () => clearInterval(interval);
+  // Gets or creates the browser's AudioContext (handles browser autoplay policies)
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        audioCtxRef.current = new AudioCtx();
+      }
     }
-  }, [headerAlert?.type, headerAlert?.message, soundAlertEnabled]);
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+    return audioCtxRef.current;
+  };
 
-  // ── SMT IIOT INGESTION WEBSOCKET (PORT 3001) ──────────────────────────────────
+  // Plays a single pleasant two-tone warning chime (Threshold reached)
+  const playThresholdWarningChime = () => {
+    if (!soundAlertEnabled) return;
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(640, now);
+      osc.frequency.exponentialRampToValueAtTime(580, now + 0.18);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.20, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.36);
+
+      // Second tone pulse
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      const t2 = now + 0.22;
+
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(740, t2);
+      osc2.frequency.exponentialRampToValueAtTime(620, t2 + 0.20);
+
+      gain2.gain.setValueAtTime(0.001, t2);
+      gain2.gain.linearRampToValueAtTime(0.22, t2 + 0.03);
+      gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.38);
+
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+
+      osc2.start(t2);
+      osc2.stop(t2 + 0.39);
+    } catch {
+      // Audio might be blocked if user hasn't clicked on the page yet
+    }
+  };
+
+  // Starts the continuous repeating low-stock warning alarm (repeats every 2.6 seconds)
+  const startThresholdWarningAlarm = () => {
+    if (isWarningAlarmPlayingRef.current) return;
+    isWarningAlarmPlayingRef.current = true;
+    playThresholdWarningChime();
+    warningIntervalRef.current = setInterval(() => {
+      playThresholdWarningChime();
+    }, 2600);
+  };
+
+  // Stops the low-stock warning alarm
+  const stopThresholdWarningAlarm = () => {
+    if (warningIntervalRef.current) {
+      clearInterval(warningIntervalRef.current);
+      warningIntervalRef.current = null;
+    }
+    isWarningAlarmPlayingRef.current = false;
+  };
+
+  // Plays a very loud, urgent emergency klaxon siren (Feeder completely empty / 0 pcs)
+  const playExhaustedEmergencySiren = () => {
+    if (!soundAlertEnabled) return;
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+
+      // Primary loud sawtooth horn (sweeps down from 1150 Hz to 850 Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(1150, now);
+      osc1.frequency.linearRampToValueAtTime(850, now + 0.28);
+
+      gain1.gain.setValueAtTime(0.01, now);
+      gain1.gain.linearRampToValueAtTime(0.88, now + 0.02);
+      gain1.gain.setValueAtTime(0.85, now + 0.24);
+      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.30);
+
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.30);
+
+      // Secondary loud square wave harmonic for high industrial penetration
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'square';
+      osc2.frequency.setValueAtTime(575, now);
+      osc2.frequency.linearRampToValueAtTime(425, now + 0.28);
+
+      gain2.gain.setValueAtTime(0.01, now);
+      gain2.gain.linearRampToValueAtTime(0.50, now + 0.02);
+      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.30);
+
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now);
+      osc2.stop(now + 0.30);
+
+      // Second siren blast shortly after
+      const t2 = now + 0.32;
+      const osc3 = ctx.createOscillator();
+      const gain3 = ctx.createGain();
+      osc3.type = 'sawtooth';
+      osc3.frequency.setValueAtTime(1250, t2);
+      osc3.frequency.linearRampToValueAtTime(900, t2 + 0.28);
+
+      gain3.gain.setValueAtTime(0.01, t2);
+      gain3.gain.linearRampToValueAtTime(0.90, t2 + 0.02);
+      gain3.gain.setValueAtTime(0.88, t2 + 0.24);
+      gain3.gain.exponentialRampToValueAtTime(0.01, t2 + 0.30);
+
+      osc3.connect(gain3);
+      gain3.connect(ctx.destination);
+      osc3.start(t2);
+      osc3.stop(t2 + 0.30);
+
+      const osc4 = ctx.createOscillator();
+      const gain4 = ctx.createGain();
+      osc4.type = 'square';
+      osc4.frequency.setValueAtTime(625, t2);
+      osc4.frequency.linearRampToValueAtTime(450, t2 + 0.28);
+
+      gain4.gain.setValueAtTime(0.01, t2);
+      gain4.gain.linearRampToValueAtTime(0.52, t2 + 0.02);
+      gain4.gain.exponentialRampToValueAtTime(0.01, t2 + 0.30);
+
+      osc4.connect(gain4);
+      gain4.connect(ctx.destination);
+      osc4.start(t2);
+      osc4.stop(t2 + 0.30);
+
+    } catch {
+      // Audio context might be waiting for user interaction
+    }
+  };
+
+  // Starts the continuous very loud exhausted emergency siren (repeats rapidly every 850ms)
+  const startExhaustedEmergencyAlarm = () => {
+    // If warning alarm was running, stop it and prioritize the loud exhausted alarm
+    stopThresholdWarningAlarm();
+
+    if (isExhaustedAlarmPlayingRef.current) return;
+    isExhaustedAlarmPlayingRef.current = true;
+    playExhaustedEmergencySiren();
+    exhaustedIntervalRef.current = setInterval(() => {
+      playExhaustedEmergencySiren();
+    }, 850);
+  };
+
+  // Stops the exhausted emergency alarm
+  const stopExhaustedEmergencyAlarm = () => {
+    if (exhaustedIntervalRef.current) {
+      clearInterval(exhaustedIntervalRef.current);
+      exhaustedIntervalRef.current = null;
+    }
+    isExhaustedAlarmPlayingRef.current = false;
+  };
+
+  // Stops all alarms immediately (e.g. when a feeder is replenished or when audio is muted)
+  const stopAllAlarms = () => {
+    stopThresholdWarningAlarm();
+    stopExhaustedEmergencyAlarm();
+  };
+
+  // If user clicks the audio mute button, kill any playing alarms right away
+  useEffect(() => {
+    if (!soundAlertEnabled) {
+      stopAllAlarms();
+    }
+  }, [soundAlertEnabled]);
+
   useEffect(() => {
     // Connect to the WebSocket server on port 3001
     const socket = io(SOCKET_URL, {
@@ -187,111 +239,22 @@ export const useSmtSocket = () => {
     });
     socketRef.current = socket;
 
-    socketRef.current.on('connect', () => {
-      socketRef.current?.emit('request_replenishment_history');
+    // Receive customer order updates
+    socket.on('line_data_update', (lines: SmtLine[]) => {
+      updateLines(lines);
     });
 
-    socketRef.current.on('disconnect', () => {
-      ['line_1', 'line_2', 'line_3', 'line_4'].forEach(id => updateLineStatus(id, 'offline'));
-      setHeaderAlert({
-        type: 'warning',
-        message: 'Lost connection to backend service',
-        timestamp: Date.now()
-      });
-    });
-
-    // Listen for Component Batch Updates
-    socketRef.current.on('inventory_batch_update', (data: SmtComponent[]) => {
-      updateInventoryBatch(data);
-
-      let exhaustedCount = 0;
-      let lastExhaustedFeeder = '';
-      let thresholdCount = 0;
-      let lastThresholdFeeder = '';
-
-      data.forEach(comp => {
-        const timeLeft = comp.time_left_seconds;
-        const isDepleted = comp.current_quantity <= 0 || (typeof timeLeft === 'number' && timeLeft <= 0) || comp.current_quantity <= 25;
-        const isThreshold = comp.status === 'critical' || (typeof timeLeft === 'number' && timeLeft <= 30);
-
-        if (isDepleted) {
-          exhaustedCount++;
-          lastExhaustedFeeder = `${comp.feeder_position} (${comp.part_number})`;
-        } else if (isThreshold) {
-          thresholdCount++;
-          lastThresholdFeeder = `${comp.feeder_position} (${comp.part_number})`;
-        }
-      });
-
-      // Priority 1: Fully Exhausted Feeder (VERY LOUD Continuous Alarm)
-      if (exhaustedCount > 0) {
-        const msg = exhaustedCount === 1
-          ? `FEEDER EXHAUSTED: ${lastExhaustedFeeder} (0 Parts Left) — MACHINE STOP RISK!`
-          : `CRITICAL ALERT: ${exhaustedCount} Feeders FULLY EXHAUSTED (0 Parts Left)!`;
-
-        setHeaderAlert({
-          type: 'exhausted',
-          message: msg,
-          count: exhaustedCount,
-          feeder: lastExhaustedFeeder,
-          timestamp: Date.now()
-        });
-      }
-      // Priority 2: Reaching Low Threshold (< 30s remaining / Low Stock)
-      else if (thresholdCount > 0) {
-        const msg = thresholdCount === 1
-          ? `LOW STOCK THRESHOLD: ${lastThresholdFeeder} < 30s remaining — Prepare Refill!`
-          : `THRESHOLD WARNING: ${thresholdCount} Feeders below threshold (< 30s remaining)!`;
-
-        setHeaderAlert({
-          type: 'threshold',
-          message: msg,
-          count: thresholdCount,
-          feeder: lastThresholdFeeder,
-          timestamp: Date.now()
-        });
-      }
-      // All replenished / safe
-      else if (previousStateRef.current.hadExhausted || previousStateRef.current.hadThreshold) {
-        setHeaderAlert(null);
-      }
-
-      previousStateRef.current = {
-        hadExhausted: exhaustedCount > 0,
-        hadThreshold: thresholdCount > 0
-      };
-    });
-
-    // Listen for ERP / Line Status Updates
-    socketRef.current.on('line_data_update', (linesArray: any[]) => {
-      updateLinesData(linesArray);
-    });
-
-    // Listen for Reel Replenishment Events (Silent without chime, visual banner only)
-    socketRef.current.on('replenishment_event', (event: ReplenishmentEvent) => {
-      addReplenishmentEvent(event);
-      const msg = `REEL REPLENISHED [${event.line_id.toUpperCase()}]: ${event.feeder_position} (${event.part_number}) +${event.replenished_amount.toLocaleString()} parts`;
-
-      setHeaderAlert({
-        type: 'info',
-        message: msg,
-        timestamp: Date.now()
-      });
-    });
-
-    // Initial replenishment history dump
-    socketRef.current.on('replenishment_history', (events: ReplenishmentEvent[]) => {
+    // Receive initial reload history
+    socket.on('replenishment_history', (events: ReplenishmentEvent[]) => {
       setReplenishmentHistory(events);
     });
 
-    return () => {
-      if (socketRef.current) socketRef.current.disconnect();
-    };
-  }, [updateInventoryBatch, updateLineStatus, updateLinesData, addReplenishmentEvent, setReplenishmentHistory, setHeaderAlert, soundAlertEnabled]);
+    // Receive feeder stock and time-to-empty updates
+    socket.on('inventory_batch_update', (batch: SmtComponent[]) => {
+      updateComponentsBatch(batch);
 
-  // ── INVENTORY SERVER WEBSOCKET (PORT 3002) ──────────────────────────────────
-  useEffect(() => {
-    inventorySocketRef.current = io(INVENTORY_SOCKET_URL);
+      // Check feeders on the currently viewed SMT line for low stock or empty reels
+      const activeLineFeeders = batch.filter(c => c.line_id === activeLineId);
 
       // Check if any feeder is completely exhausted (0 pcs or <= 10 pcs)
       const exhaustedFeeder = activeLineFeeders.find(c => c.current_quantity <= 10 || c.time_left_seconds === 0);

@@ -45,16 +45,7 @@ export interface ReplenishmentEvent {
   replenished_amount: number;
 }
 
-export type HeaderAlertType = 'exhausted' | 'threshold' | 'critical' | 'warning' | 'info';
-
-export interface HeaderAlert {
-  type: HeaderAlertType;
-  message: string;
-  count?: number;
-  feeder?: string;
-  partNumber?: string;
-  timestamp?: number;
-}
+export type HeaderAlertType = 'exhausted' | 'threshold' | 'replenished';
 
 export interface KpiMetrics {
   totalFeeders: number;

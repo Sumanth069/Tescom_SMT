@@ -254,7 +254,7 @@ export function ReelInventoryTable() {
   const stats = useMemo(() => {
     let total = 0, critical = 0, warning = 0, ok = 0;
     Object.values(reelInventory).forEach(cat => {
-      (cat.reels ?? []).forEach(r => {
+      (cat.reels ?? []).forEach((r: ReelRecord) => {
         total++;
         if (r.computedStatus === 'critical') critical++;
         else if (r.computedStatus === 'warning') warning++;
@@ -284,7 +284,7 @@ export function ReelInventoryTable() {
 
       if (isPartMatch || isDescMatch || isTypeMatch) {
         const catReels = reelInventory[mapping.componentType]?.reels || [];
-        const activeReel = catReels.find(r => r.partNumber === partNum) || null;
+        const activeReel = catReels.find((r: ReelRecord) => r.partNumber === partNum) || null;
 
         matchedMasterParts.push({
           partNumber: partNum,
@@ -301,7 +301,7 @@ export function ReelInventoryTable() {
       const meta = masterConfig.componentTypes[catType];
       const isCatMatch = catType.toLowerCase().includes(q) || (meta?.label || '').toLowerCase().includes(q);
 
-      (catData.reels || []).forEach(r => {
+      (catData.reels || []).forEach((r: ReelRecord) => {
         const isReelIdMatch = r.reelId.toLowerCase().includes(q);
         const isPartMatch = r.partNumber.toLowerCase().includes(q);
         const isPartsIdMatch = r.partsId.toLowerCase().includes(q);
@@ -345,7 +345,7 @@ export function ReelInventoryTable() {
         const allReels = categoryData?.reels ?? [];
         const isCatNameMatch = type.toLowerCase().includes(q) || meta.label.toLowerCase().includes(q);
 
-        const matchingReels = allReels.filter(reel => {
+        const matchingReels = allReels.filter((reel: ReelRecord) => {
           if (statusFilter !== 'all' && (reel.computedStatus || 'ok') !== statusFilter) {
             return false;
           }
