@@ -1,3 +1,14 @@
+// Responsive Bar Chart Visualization for SMT Feeders
+// -------------------------------------------------------------
+// This component displays feeder stock levels as an interactive bar chart:
+// 1. Recharts Bar Chart: Displays how many parts are left across all feeders on the line.
+// 2. Dynamic Color Coding:
+//    - Blue: Normal stock levels.
+//    - Amber/Yellow: Warning levels (approaching low stock threshold).
+//    - Red: Critical levels (< 30s left or empty).
+// 3. Hover Tooltip: Shows feeder slot, part number, description, quantity, placement rate,
+//    and estimated time remaining when hovering over any bar.
+
 import { useMemo, useState } from 'react';
 import { useSmtStore } from '../../store/useSmtStore';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -5,6 +16,8 @@ import { ArrowDownUp, SearchX } from 'lucide-react';
 
 type SortOption = 'feeder' | 'part_number' | 'quantity' | 'speed' | 'time_left' | 'status';
 
+// Main Feeder Bar Chart Component:
+// Renders responsive Recharts bars with color-coded depletion levels and interactive tooltips.
 export function ComponentChart() {
   const activeLineId = useSmtStore((state) => state.activeLineId);
   const componentsDict = useSmtStore((state) => state.components);
@@ -13,9 +26,10 @@ export function ComponentChart() {
 
   const [sortBy, setSortBy] = useState<SortOption>('feeder');
 
+  // Filter and sort the feeder list for the active line
   const data = useMemo(() => {
     const rawList = Object.values(componentsDict).filter((comp) => comp.line_id === activeLineId);
-    
+
     // Apply Search & Status Filters
     const filtered = rawList.filter((comp) => {
       if (statusFilter !== 'all' && comp.status !== statusFilter) return false;
@@ -35,20 +49,20 @@ export function ComponentChart() {
           const numA = parseInt(a.feeder_position.replace(/\D/g, '') || '0', 10);
           const numB = parseInt(b.feeder_position.replace(/\D/g, '') || '0', 10);
           return numA - numB;
-          
+
         case 'part_number':
           return a.part_number.localeCompare(b.part_number);
-          
+
         case 'quantity':
           return a.current_quantity - b.current_quantity;
-          
+
         case 'speed':
           return (b.parts_per_second || 0) - (a.parts_per_second || 0);
-          
+
         case 'status':
           const statusWeight = { critical: 1, warning: 2, ok: 3 };
           return statusWeight[a.status] - statusWeight[b.status];
-          
+
         case 'time_left':
         default:
           if (a.time_left_seconds == null && b.time_left_seconds != null) return 1;
@@ -69,7 +83,7 @@ export function ComponentChart() {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-      {/* THE SORTING TOOLBAR */}
+      {/* Sorting Toolbar */}
       <div className="px-6 py-3.5 border-b border-gray-200 bg-gray-50 flex justify-between items-center gap-3">
         <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
           Rendering {data.length} feeder bars
@@ -104,17 +118,17 @@ export function ComponentChart() {
         <div className="p-4 h-[600px] w-full bg-white">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ top: 20, right: 20, left: 0, bottom: 60 }}>
-              <XAxis 
-                dataKey="feeder_position" 
-                angle={-45} 
-                textAnchor="end" 
-                interval="preserveStartEnd" 
+              <XAxis
+                dataKey="feeder_position"
+                angle={-45}
+                textAnchor="end"
+                interval="preserveStartEnd"
                 minTickGap={20}
-                tick={{ fontSize: 12, fill: '#6b7280' }} 
+                tick={{ fontSize: 12, fill: '#6b7280' }}
               />
               <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} />
-              
-              <Tooltip 
+
+              <Tooltip
                 cursor={{ fill: '#f3f4f6' }}
                 content={({ active, payload }) => {
                   if (active && payload && payload.length) {
@@ -138,8 +152,8 @@ export function ComponentChart() {
                         <div className="mt-2.5 pt-2 border-t border-gray-800 flex justify-between items-center">
                           <span className="text-gray-400 text-[10px] uppercase font-bold">Status</span>
                           <span className={`uppercase text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            item.status === 'ok' ? 'bg-green-500/20 text-green-400' : 
-                            item.status === 'warning' ? 'bg-yellow-500/20 text-yellow-400' : 
+                            item.status === 'ok' ? 'bg-green-500/20 text-green-400' :
+                            item.status === 'warning' ? 'bg-yellow-500/20 text-yellow-400' :
                             'bg-red-500/20 text-red-400 ring-1 ring-red-500/40'
                           }`}>{item.status}</span>
                         </div>
@@ -149,16 +163,16 @@ export function ComponentChart() {
                   return null;
                 }}
               />
-              
+
               <Bar dataKey="current_quantity" radius={[4, 4, 0, 0]}>
                 {data.map((entry, index) => (
-                  <Cell 
-                    key={`cell-${index}`} 
+                  <Cell
+                    key={`cell-${index}`}
                     fill={
-                      entry.status === 'critical' ? '#ef4444' : 
-                      entry.status === 'warning' ? '#eab308' :  
-                      '#3b82f6'                                 
-                    } 
+                      entry.status === 'critical' ? '#ef4444' :
+                      entry.status === 'warning' ? '#eab308' :
+                      '#3b82f6'
+                    }
                   />
                 ))}
               </Bar>

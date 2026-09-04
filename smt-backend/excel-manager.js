@@ -1,18 +1,16 @@
-/**
- * excel-manager.js — Excel (.xlsx) Archiving & Export Engine for SMT Reel Inventory
- *
- * Provides:
- *  - Per-category Excel file maintenance (e.g. CAPACITOR.xlsx, RESISTOR.xlsx)
- *  - Real-time appending & updating of scanned reels
- *  - Professional styling (headers, column widths, status colors)
- *  - Consolidated multi-sheet Excel export for all component categories
- *  - Migration utility to populate Excel files from initial JSON arrays
- */
+// Excel File Manager for SMT Reel Inventory
+// -------------------------------------------------------------
+// This file handles reading, writing, and formatting Excel (.xlsx) spreadsheets:
+// 1. Keeps a separate Excel file for each category (CAPACITOR.xlsx, RESISTOR.xlsx, etc.).
+// 2. Logs every scanned reel so factory managers have a permanent Excel record.
+// 3. Formats spreadsheets nicely (green headers, alternating row colors, formatted numbers).
+// 4. Can combine all categories into a single Master Excel file with multiple tabs.
 
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 
+// Column headers and widths for our inventory spreadsheets
 const HEADERS = [
   { header: 'Reel ID', key: 'reelId', width: 16 },
   { header: 'Part Number', key: 'partNumber', width: 26 },
@@ -25,11 +23,13 @@ const HEADERS = [
   { header: 'Last Updated', key: 'lastUpdated', width: 22 }
 ];
 
+// Returns the full file path for a category's Excel file (e.g. SMT_DATA/RESISTOR.xlsx)
 function getExcelPath(dataDir, componentType) {
   const safeName = componentType.toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
   return path.join(dataDir, `${safeName}.xlsx`);
 }
 
+// Formats date strings nicely so they look clean in Excel cells (YYYY-MM-DD HH:mm:ss)
 function formatDate(isoStr) {
   if (!isoStr) return '';
   try {
@@ -41,15 +41,17 @@ function formatDate(isoStr) {
   }
 }
 
+// Sets up the visual look of an Excel worksheet (freezes top row, colors headers)
 function styleWorksheet(worksheet, componentType, meta) {
+  // Keep the header row pinned at top when scrolling down
   worksheet.views = [{ state: 'frozen', ySplit: 1 }];
 
-  // Style Header Row
+  // Make the header row bold with white text
   const headerRow = worksheet.getRow(1);
   headerRow.height = 28;
   headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Segoe UI' };
-  
-  // Choose header color based on component type if available
+
+  // Use the category's theme color if specified in MASTER.json, otherwise use nice blue
   let headerColor = 'FF1E40AF'; // Default Slate Blue
   if (meta && meta.color) {
     const hex = meta.color.replace('#', '');
@@ -72,10 +74,12 @@ function styleWorksheet(worksheet, componentType, meta) {
   });
 }
 
+// Formats individual rows (zebra stripes, thousands separators like 10,000, and color tags)
 function styleDataRow(row, rowIndex, reel) {
   row.height = 22;
   row.font = { name: 'Segoe UI', size: 10 };
 
+  // Alternate between white and light gray background for easy reading
   const isEven = rowIndex % 2 === 0;
   const bgArgb = isEven ? 'FFF9FAFB' : 'FFFFFFFF';
 
@@ -93,7 +97,7 @@ function styleDataRow(row, rowIndex, reel) {
     };
     cell.alignment = { vertical: 'middle', horizontal: 'left' };
 
-    // Format numbers
+    // Format quantities with commas (e.g. 5,000) and align numbers to the right
     if (colNumber === 5 || colNumber === 6) {
       cell.numFmt = '#,##0';
       cell.alignment = { vertical: 'middle', horizontal: 'right' };
@@ -102,7 +106,7 @@ function styleDataRow(row, rowIndex, reel) {
     }
   });
 
-  // Status cell styling
+  // Color-code the status word (Green for OK, Amber for Warning, Red for Critical)
   const statusCell = row.getCell('status');
   const st = String(reel.status || reel.computedStatus || 'OK').toUpperCase();
   if (st === 'CRITICAL') {
@@ -114,9 +118,7 @@ function styleDataRow(row, rowIndex, reel) {
   }
 }
 
-/**
- * Append or update a scanned reel in the category Excel file
- */
+// Adds a new scanned reel into the category Excel file, or updates it if it already exists
 async function appendOrUpdateReelInExcel(dataDir, componentType, reel, meta) {
   const filePath = getExcelPath(dataDir, componentType);
   const workbook = new ExcelJS.Workbook();
@@ -135,10 +137,10 @@ async function appendOrUpdateReelInExcel(dataDir, componentType, reel, meta) {
     worksheet.columns = HEADERS;
   }
 
-  // Check if reel already exists in worksheet
+  // Check if this reel ID or part/lot combination is already written in the sheet
   let existingRow = null;
   worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return; // skip header
+    if (rowNumber === 1) return; // Skip header row
     const rId = row.getCell('reelId').value;
     const pNum = row.getCell('partNumber').value;
     const pId = row.getCell('partsId').value;
@@ -173,9 +175,7 @@ async function appendOrUpdateReelInExcel(dataDir, componentType, reel, meta) {
   return filePath;
 }
 
-/**
- * Initialize or sync an entire array of reels into the category Excel file
- */
+// Writes a whole list of reels into an Excel file at once (used during startup migration)
 async function syncCategoryReelsToExcel(dataDir, componentType, reels, meta) {
   if (!Array.isArray(reels) || reels.length === 0) return;
   const filePath = getExcelPath(dataDir, componentType);
@@ -204,9 +204,7 @@ async function syncCategoryReelsToExcel(dataDir, componentType, reels, meta) {
   return filePath;
 }
 
-/**
- * Read all historical reels stored in an Excel file
- */
+// Reads all the historical rows out of an Excel file so we can view them in the dashboard
 async function readReelsFromExcel(dataDir, componentType) {
   const filePath = getExcelPath(dataDir, componentType);
   if (!fs.existsSync(filePath)) return [];
@@ -218,7 +216,7 @@ async function readReelsFromExcel(dataDir, componentType) {
 
   const reels = [];
   worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return; // skip header
+    if (rowNumber === 1) return; // Skip header row
     reels.push({
       reelId: String(row.getCell(1).value || ''),
       partNumber: String(row.getCell(2).value || ''),
@@ -235,9 +233,7 @@ async function readReelsFromExcel(dataDir, componentType) {
   return reels;
 }
 
-/**
- * Generate a multi-sheet master Excel workbook containing all categories
- */
+// Combines all category sheets into a single Master Excel workbook with multiple tabs
 async function generateMasterWorkbook(dataDir, masterConfig) {
   const masterWorkbook = new ExcelJS.Workbook();
   masterWorkbook.creator = 'Tescom SMT Floor System';
@@ -248,6 +244,7 @@ async function generateMasterWorkbook(dataDir, masterConfig) {
 
   for (const [type, meta] of Object.entries(componentTypes)) {
     const rawName = (meta && meta.label) ? meta.label : type;
+    // Clean up sheet names so Excel won't complain about invalid characters
     const sheetName = rawName.replace(/[\\/?*[\]:]/g, '_').substring(0, 31);
     const worksheet = masterWorkbook.addWorksheet(sheetName);
     worksheet.columns = HEADERS;

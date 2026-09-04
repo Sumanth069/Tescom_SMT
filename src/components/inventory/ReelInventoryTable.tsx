@@ -1,16 +1,15 @@
-/**
- * ReelInventoryTable — Displays reel inventory grouped by component category.
- *
- * FULLY DATA-DRIVEN: categories are rendered dynamically from MASTER.json.
- * This component contains ZERO references to specific component types
- * (RESISTOR, CAPACITOR, etc.). It renders whatever MASTER.json defines.
- *
- * FEATURES:
- *  - Comprehensive Child Component Search: Search across Part Numbers, Component Descriptions/Values (e.g. 10K, 100nF, 0402, STM32), Reel IDs, Lot IDs, Parts IDs, and Category names.
- *  - Smart Component Presence Status Card: Instantly verifies whether a particular child component is active on the floor, available in the catalog/Excel archive, or unknown.
- *  - Category & Status Level Filters.
- *  - Live Excel interface integration with 1-click modal access.
- */
+// Barcode Reel Inventory Table & Child Component Search
+// -------------------------------------------------------------
+// This view manages the registered component reels:
+// 1. Dynamic Accordions: Renders category accordions automatically from MASTER.json.
+// 2. Child Component Search & Presence Checker:
+//    - Searches across Part Numbers (e.g. "RC0402FR-0710KL"), descriptions ("10K", "100nF", "STM32"),
+//      Reel IDs, and Lot IDs.
+//    - Shows instant color-coded Presence Cards:
+//      🟢 Present in Active Inventory (shows reel ID, stock amount, and Live Excel link).
+//      🟡 Registered in Catalog (shows that part is registered in MASTER.json with past logs).
+//      🔴 Not Found (informs if the part hasn't been scanned or registered yet).
+// 3. Direct Live Excel Shortcuts: 1-click button on each category header to open its spreadsheet.
 
 import { useMemo, useState } from 'react';
 import { useSmtStore } from '../../store/useSmtStore';
@@ -33,7 +32,7 @@ import {
 import clsx from 'clsx';
 import type { ReelRecord, MasterComponentEntry } from '../../types';
 
-// ─── QUANTITY STATUS BADGE ────────────────────────────────────────────────────
+// Status pill badge for reel inventory rows
 function QuantityBadge({ reel }: { reel: ReelRecord }) {
   const level = reel.computedStatus || 'ok';
 
@@ -54,15 +53,15 @@ function QuantityBadge({ reel }: { reel: ReelRecord }) {
   );
 }
 
-// ─── QUANTITY BAR ─────────────────────────────────────────────────────────────
+// Progress bar showing remaining quantity percentage
 function QuantityBar({ reel }: { reel: ReelRecord }) {
   const pct = reel.initialQuantity > 0
     ? Math.min(100, Math.round((reel.remainingQuantity / reel.initialQuantity) * 100))
     : 0;
 
-  const color = 
-    reel.computedStatus === 'critical' ? 'bg-red-500' : 
-    reel.computedStatus === 'warning'  ? 'bg-yellow-400' : 
+  const color =
+    reel.computedStatus === 'critical' ? 'bg-red-500' :
+    reel.computedStatus === 'warning'  ? 'bg-yellow-400' :
     'bg-green-500';
 
   return (
@@ -75,7 +74,6 @@ function QuantityBar({ reel }: { reel: ReelRecord }) {
   );
 }
 
-// ─── CATEGORY ACCORDION ───────────────────────────────────────────────────────
 interface CategoryAccordionProps {
   componentType: string;
   meta: MasterComponentEntry;
@@ -84,17 +82,17 @@ interface CategoryAccordionProps {
   onOpenLiveExcel: (componentType: string) => void;
 }
 
+// Collapsible category accordion displaying the most recent reel scan
 function CategoryAccordion({ componentType, meta, reels, searchQuery, onOpenLiveExcel }: CategoryAccordionProps) {
   const [userToggledOpen, setUserToggledOpen] = useState<boolean | null>(null);
   const isOpen = userToggledOpen !== null ? userToggledOpen : true;
 
-  // Compute alert counts from backend-computed status
   const criticalCount = reels.filter(r => r.computedStatus === 'critical').length;
   const warningCount  = reels.filter(r => r.computedStatus === 'warning').length;
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
-      {/* Header — clickable */}
+      {/* Header bar */}
       <div
         onClick={() => setUserToggledOpen(!isOpen)}
         className="w-full flex items-center justify-between px-5 py-3.5 bg-white hover:bg-gray-50/80 transition-colors cursor-pointer select-none"
@@ -123,7 +121,6 @@ function CategoryAccordion({ componentType, meta, reels, searchQuery, onOpenLive
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3" onClick={e => e.stopPropagation()}>
-          {/* Recent scan badge */}
           {reels.length > 0 ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200/60 px-2.5 py-0.5 rounded-full">
               <Clock className="w-3 h-3 text-blue-500" /> Recent Scan
@@ -132,7 +129,7 @@ function CategoryAccordion({ componentType, meta, reels, searchQuery, onOpenLive
             <span className="text-xs text-gray-400 italic">No Scans Yet</span>
           )}
 
-          {/* OPEN LIVE EXCEL BUTTON */}
+          {/* Button to open this category in Live Excel */}
           <button
             type="button"
             onClick={(e) => {
@@ -140,17 +137,16 @@ function CategoryAccordion({ componentType, meta, reels, searchQuery, onOpenLive
               onOpenLiveExcel(componentType);
             }}
             title={`Open live interactive Excel spreadsheet for ${meta.label}`}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-[#107C41] bg-emerald-50 hover:bg-emerald-100 border border-emerald-300/80 rounded-lg transition-all active:scale-95 shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-[#107C41] bg-emerald-50 hover:bg-emerald-100 border border-emerald-300/80 rounded-lg transition-all active:scale-95 shadow-2xs cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-[#107C41]" />
             <span>Live Excel Sheet</span>
           </button>
 
-          {/* Accordion expand/collapse */}
           <button
             type="button"
             onClick={() => setUserToggledOpen(!isOpen)}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded"
+            className="p-1 text-gray-400 hover:text-gray-600 rounded cursor-pointer"
           >
             {isOpen
               ? <ChevronDown className="w-4 h-4 text-gray-400" />
@@ -160,7 +156,7 @@ function CategoryAccordion({ componentType, meta, reels, searchQuery, onOpenLive
         </div>
       </div>
 
-      {/* Table */}
+      {/* Accordion Table Content */}
       {isOpen && (
         <div className="border-t border-gray-100">
           {reels.length === 0 ? (
@@ -241,23 +237,24 @@ function CategoryAccordion({ componentType, meta, reels, searchQuery, onOpenLive
   );
 }
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+// Main Reel Inventory Component:
+// Shows the category overview, search bar, child component presence cards, and category accordions.
 export function ReelInventoryTable() {
   const reelInventory = useSmtStore(s => s.reelInventory);
   const masterConfig  = useSmtStore(s => s.masterConfig);
   const isLoading     = useSmtStore(s => s.isReelInventoryLoading);
   const openLiveExcel = useSmtStore(s => s.openLiveExcel);
 
-  // Search & Filter State
+  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'warning' | 'critical'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
 
-  // Global stats computed from backend status
+  // Calculate overall stock level totals across all categories
   const stats = useMemo(() => {
     let total = 0, critical = 0, warning = 0, ok = 0;
     Object.values(reelInventory).forEach(cat => {
-      (cat.reels ?? []).forEach(r => {
+      (cat.reels ?? []).forEach((r: ReelRecord) => {
         total++;
         if (r.computedStatus === 'critical') critical++;
         else if (r.computedStatus === 'warning') warning++;
@@ -267,12 +264,12 @@ export function ReelInventoryTable() {
     return { total, critical, warning, ok };
   }, [reelInventory]);
 
-  // ── DEEP CHILD COMPONENT SEARCH RESOLUTION ──────────────────────────────
+  // Deep search matching logic (checks part numbers, descriptions, and active stock)
   const childComponentMatches = useMemo(() => {
     if (!searchQuery.trim() || !masterConfig) return null;
     const q = searchQuery.trim().toLowerCase();
 
-    // 1. Check matching catalog definitions from MASTER.json
+    // 1. Check MASTER.json catalog definitions
     const matchedMasterParts: {
       partNumber: string;
       componentType: string;
@@ -286,9 +283,8 @@ export function ReelInventoryTable() {
       const isTypeMatch = mapping.componentType.toLowerCase().includes(q) || (masterConfig.componentTypes[mapping.componentType]?.label || '').toLowerCase().includes(q);
 
       if (isPartMatch || isDescMatch || isTypeMatch) {
-        // Find if this part is currently active in live reels
         const catReels = reelInventory[mapping.componentType]?.reels || [];
-        const activeReel = catReels.find(r => r.partNumber === partNum) || null;
+        const activeReel = catReels.find((r: ReelRecord) => r.partNumber === partNum) || null;
 
         matchedMasterParts.push({
           partNumber: partNum,
@@ -299,13 +295,13 @@ export function ReelInventoryTable() {
       }
     });
 
-    // 2. Also check active reels that match reel ID, parts ID, lot ID, or category directly
+    // 2. Check active reels that match reel ID, parts ID, lot ID, or category directly
     const matchedActiveReels: { reel: ReelRecord; category: string; description?: string }[] = [];
     Object.entries(reelInventory).forEach(([catType, catData]) => {
       const meta = masterConfig.componentTypes[catType];
       const isCatMatch = catType.toLowerCase().includes(q) || (meta?.label || '').toLowerCase().includes(q);
 
-      (catData.reels || []).forEach(r => {
+      (catData.reels || []).forEach((r: ReelRecord) => {
         const isReelIdMatch = r.reelId.toLowerCase().includes(q);
         const isPartMatch = r.partNumber.toLowerCase().includes(q);
         const isPartsIdMatch = r.partsId.toLowerCase().includes(q);
@@ -334,7 +330,7 @@ export function ReelInventoryTable() {
     };
   }, [searchQuery, masterConfig, reelInventory]);
 
-  // Filtered categories & reels based on search query, category filter, and status filter
+  // Filter categories and reels based on user selections
   const filteredCategories = useMemo(() => {
     if (!masterConfig) return [];
     const q = searchQuery.trim().toLowerCase();
@@ -349,13 +345,11 @@ export function ReelInventoryTable() {
         const allReels = categoryData?.reels ?? [];
         const isCatNameMatch = type.toLowerCase().includes(q) || meta.label.toLowerCase().includes(q);
 
-        const matchingReels = allReels.filter(reel => {
-          // Status filter
+        const matchingReels = allReels.filter((reel: ReelRecord) => {
           if (statusFilter !== 'all' && (reel.computedStatus || 'ok') !== statusFilter) {
             return false;
           }
 
-          // Search query filter
           if (!q) return true;
           const mapping = masterConfig.partMappings[reel.partNumber];
           const desc = mapping?.description || '';
@@ -418,18 +412,18 @@ export function ReelInventoryTable() {
           </p>
         </div>
 
-        {/* OPEN MASTER LIVE EXCEL BUTTON */}
+        {/* Master Live Excel Button */}
         <button
           type="button"
           onClick={() => openLiveExcel('ALL')}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-[#107C41] hover:bg-[#0E6C38] rounded-lg shadow-sm transition-all active:scale-95 self-start md:self-auto"
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-[#107C41] hover:bg-[#0E6C38] rounded-lg shadow-sm transition-all active:scale-95 self-start md:self-auto cursor-pointer"
         >
           <FileSpreadsheet className="w-4 h-4" />
           <span>Open Live Master Excel</span>
         </button>
       </div>
 
-      {/* Stats Bar */}
+      {/* Stock Level Stats Bar */}
       <div className="grid grid-cols-4 gap-3">
         {[
           { label: 'Active Categories', value: Object.keys(reelInventory).filter(k => (reelInventory[k]?.reels?.length ?? 0) > 0).length, color: 'text-gray-900', bg: 'bg-white' },
@@ -447,7 +441,7 @@ export function ReelInventoryTable() {
       {/* ── SEARCH & CHILD COMPONENT PRESENCE CHECKER BAR ────────────────────── */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          
+
           {/* Main Search Input */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -462,7 +456,7 @@ export function ReelInventoryTable() {
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
                 title="Clear search"
               >
                 <X className="w-4 h-4" />
@@ -470,7 +464,7 @@ export function ReelInventoryTable() {
             )}
           </div>
 
-          {/* Category Quick Filter Dropdown */}
+          {/* Category Dropdown Filter */}
           <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
             <select
               value={categoryFilter}
@@ -483,7 +477,7 @@ export function ReelInventoryTable() {
               ))}
             </select>
 
-            {/* Status Level Filter Buttons */}
+            {/* Status Level Buttons */}
             <div className="flex bg-gray-100 p-1 rounded-lg">
               {(['all', 'ok', 'warning', 'critical'] as const).map((lvl) => (
                 <button
@@ -491,7 +485,7 @@ export function ReelInventoryTable() {
                   type="button"
                   onClick={() => setStatusFilter(lvl)}
                   className={clsx(
-                    "px-2.5 py-1 text-xs font-bold rounded-md transition-all uppercase tracking-wider",
+                    "px-2.5 py-1 text-xs font-bold rounded-md transition-all uppercase tracking-wider cursor-pointer",
                     statusFilter === lvl ? "bg-white text-gray-900 shadow-2xs" : "text-gray-500 hover:text-gray-800"
                   )}
                 >
@@ -514,7 +508,7 @@ export function ReelInventoryTable() {
                   key={part}
                   type="button"
                   onClick={() => setSearchQuery(part)}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-mono text-[11px] transition-colors"
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-mono text-[11px] transition-colors cursor-pointer"
                 >
                   {chip}
                 </button>
@@ -523,10 +517,10 @@ export function ReelInventoryTable() {
           </div>
         )}
 
-        {/* ── COMPREHENSIVE CHILD COMPONENT PRESENCE CARDS ─────────────────────── */}
+        {/* ── CHILD COMPONENT PRESENCE CARDS ─────────────────────────────────── */}
         {childComponentMatches && (
           <div className="space-y-2 pt-1 animate-in fade-in slide-in-from-top-2 duration-200">
-            {/* 1. When Active Child Components Match */}
+            {/* 1. Component is active in live inventory */}
             {childComponentMatches.hasAnyActiveMatch && (
               <div className="p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-xl shadow-2xs space-y-2">
                 <div className="flex items-center justify-between gap-2 border-b border-emerald-200/60 pb-2">
@@ -570,7 +564,7 @@ export function ReelInventoryTable() {
                         <button
                           type="button"
                           onClick={() => openLiveExcel(category)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-all active:scale-95 shrink-0"
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-all active:scale-95 shrink-0 cursor-pointer"
                           title={`View ${category} in Live Excel`}
                         >
                           <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
@@ -584,7 +578,7 @@ export function ReelInventoryTable() {
               </div>
             )}
 
-            {/* 2. When Child Component is Known in Catalog but not Currently Active */}
+            {/* 2. Component is registered in catalog but no recent scan */}
             {!childComponentMatches.hasAnyActiveMatch && childComponentMatches.hasAnyCatalogMatch && (
               <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl shadow-2xs space-y-2">
                 <div className="flex items-center justify-between gap-2 border-b border-amber-200/60 pb-2">
@@ -626,7 +620,7 @@ export function ReelInventoryTable() {
                         <button
                           type="button"
                           onClick={() => openLiveExcel(part.componentType)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-all active:scale-95 shrink-0"
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-all active:scale-95 shrink-0 cursor-pointer"
                           title={`View ${part.componentType} in Live Excel`}
                         >
                           <FileSpreadsheet className="w-3.5 h-3.5 text-amber-700" />
@@ -640,7 +634,7 @@ export function ReelInventoryTable() {
               </div>
             )}
 
-            {/* 3. When Child Component is Not Found Anywhere */}
+            {/* 3. Component is not registered */}
             {!childComponentMatches.hasAnyActiveMatch && !childComponentMatches.hasAnyCatalogMatch && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 shadow-2xs">
                 <XCircle className="w-5 h-5 text-red-600 shrink-0" />
@@ -658,7 +652,7 @@ export function ReelInventoryTable() {
         )}
       </div>
 
-      {/* Category Accordions — filtered dynamically */}
+      {/* Dynamic Category Accordions */}
       <div className="space-y-3">
         {filteredCategories.map(({ type, meta, reels }) => (
           <CategoryAccordion
@@ -681,7 +675,7 @@ export function ReelInventoryTable() {
             <button
               type="button"
               onClick={() => { setSearchQuery(''); setStatusFilter('all'); setCategoryFilter('ALL'); }}
-              className="mt-2 text-xs font-bold text-blue-600 hover:text-blue-800 underline"
+              className="mt-2 text-xs font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer"
             >
               Reset Filters
             </button>

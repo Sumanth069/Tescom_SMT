@@ -1,7 +1,17 @@
+// Feeder Reel Reload Audit Trail Modal
+// -------------------------------------------------------------
+// This modal shows the history of all feeder reloads on the factory floor:
+// 1. Automatic Logging: Whenever an operator replaces a low or empty reel,
+//    the backend detects the sudden increase in quantity and logs a timestamped event.
+// 2. Event Details: Shows Feeder Slot, Line ID, Part Number, quantity added, and time.
+// 3. Search & Filter: Filter by part number/feeder, or check "Show current line only".
+
 import { useState } from 'react';
 import { useSmtStore } from '../../store/useSmtStore';
 import { X, RefreshCw, Search, Calendar, PackageCheck, Layers } from 'lucide-react';
 
+// Main Reel Replenishment Audit Modal Component:
+// Shows an audit trail of every time a feeder was reloaded with a new component reel.
 export function ReplenishmentLogModal() {
   const isOpen = useSmtStore((state) => state.isReplenishmentModalOpen);
   const setIsOpen = useSmtStore((state) => state.setIsReplenishmentModalOpen);
@@ -13,6 +23,7 @@ export function ReplenishmentLogModal() {
 
   if (!isOpen) return null;
 
+  // Filter log entries by search text or line filter
   const filteredEvents = replenishmentEvents.filter((e) => {
     if (showCurrentLineOnly && e.line_id !== activeLineId) return false;
     if (!filterText) return true;
@@ -27,7 +38,7 @@ export function ReplenishmentLogModal() {
   return (
     <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
-        
+
         {/* Modal Header */}
         <div className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -41,13 +52,13 @@ export function ReplenishmentLogModal() {
           </div>
           <button
             onClick={() => setIsOpen(false)}
-            className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
+            className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Modal Controls */}
+        {/* Search & Line Filter Bar */}
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -65,13 +76,13 @@ export function ReplenishmentLogModal() {
               type="checkbox"
               checked={showCurrentLineOnly}
               onChange={(e) => setShowCurrentLineOnly(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
             />
             Show current line ({activeLineId}) only
           </label>
         </div>
 
-        {/* Log Entries */}
+        {/* List of Reload Events */}
         <div className="p-6 overflow-y-auto flex-1 space-y-3">
           {filteredEvents.length === 0 ? (
             <div className="py-12 text-center text-gray-500 flex flex-col items-center justify-center">
@@ -118,12 +129,12 @@ export function ReplenishmentLogModal() {
           )}
         </div>
 
-        {/* Modal Footer */}
+        {/* Footer */}
         <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex justify-between items-center text-xs text-gray-500">
           <span>Total Logged Events: {filteredEvents.length}</span>
           <button
             onClick={() => setIsOpen(false)}
-            className="px-4 py-1.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-gray-800 transition-colors"
+            className="px-4 py-1.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
           >
             Close Log
           </button>
